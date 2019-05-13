@@ -13,105 +13,110 @@ import numpy as np
 import csv
 import struct
 import bluetooth
+import pyqtgraph as pg
 from cobs import cobs
 from libraries.imumsg import imumsg_pb2 as imuMsg
-from libraries import realtimelib
-from vispy import gloo
-from vispy import app
-import math
+from pyqtgraph.Qt import QtGui
+from PyQt5 import QtCore
+from multiprocessing import Process
+
 import threading
 
 # DEFINITIONS
 
 dir_path = os.path.dirname(os.path.realpath(__file__))
-rightIMUDataFilePath = os.path.join('IMU Data', '{} rightIMUMessage.csv'.format(datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S")))
-leftIMUDataFilePath = os.path.join('IMU Data', '{} leftIMUMessage.csv'.format(datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S")))
-
-
-# imuMsgPath = os.path.join(dir_path, 'libraries', 'imumsg_pb2.py')
-# print(imuMsgPath)
-# imuMsg = importlib.import_module('imumsg_pb2', imuMsgPath)
 
 HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
 PORT = 65432        # Port to listen on (non-privileged ports are > 1023)
-RaspberryPiAddress = "B8:27:EB:6B:15:7F"
 
-displayData = np.zeros((6, 1000)).astype(np.float32)
+# displayDataLeft = np.zeros((6, 1000)).astype(np.float32)
 
-Left = {'Address': "98:D3:51:FD:AD:F5", "DataPath": leftIMUDataFilePath}
-Right = {'Address': "98:D3:81:FD:48:C9", "DataPath": rightIMUDataFilePath}
+RaspberryPi = {'Source': 'Pi', 'Address': 'B8:27:EB:6B:15:7F'}
+Left = {'Name': 'Left', 'Address': '98:D3:51:FD:AD:F5',
+        'DataPath': os.path.join('IMU Data', '{} rightIMUMessage.csv'.format(datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+        'DisplayData': np.zeros((6, 3000)).astype(np.float32)}
+Right = {'Name': 'Right', 'Address': '98:D3:81:FD:48:C9',
+         'DataPath': os.path.join('IMU Data', '{} leftIMUMessage.csv'.format(datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+         'DisplayData': np.zeros((6, 3000)).astype(np.float32)}
 
 # CLASSES
 
 class ClUIWrapper():
 
-    def __init__(self, Source):
-        self.loop = ClWheelDataParsing(Source)
-        self.canvas = Canvas()
-        self.source = Source
+    def __init__(self, sources):
+
+        self.sources = sources
+        self.dataPath = {}
+        self.loop = {}
+
+        for dataSource in self.sources:
+            self.dataPath[dataSource['Name']] = dataSource['DataPath']
+            self.loop[dataSource['Name']] = ClWheelDataParsing(dataSource)
+
+        ### START QtApp #####
+        self.app = QtGui.QApplication([])  # you MUST do this once (initialize things)
+        ####################
+
+        self.canvas = ClDisplayDataQT(self.sources)
 
     def fnStart(self):
 
-        threads = []
+        thread = {}
 
-        # p2 = threading.Thread(target=app.run)
-        # threads.append(p2)
-        # p2.start()
-        p1 = threading.Thread(target=self.loop.fnRun)
-        threads.append(p1)
-        p1.start()
+        for dataSource in self.sources:
+            thread[dataSource['Name']] = threading.Thread(target=self.loop[dataSource['Name']].fnRun)
+            thread[dataSource['Name']].start()
 
-        # self.loop.fnRun()
-        app.run()
+        ### END QtApp ####
+        self.app.exec_()  # you MUST put this at the end
 
-        np.savetxt(self.source['DataPath'], np.transpose([self.loop.xData, self.loop.yData, self.loop.zData, self.loop.xGyro,
-                                             self.loop.yGyro, self.loop.zGyro]), delimiter=",")
+        for dataSource in self.sources:
+            np.savetxt(self.dataPath[dataSource['Name']], np.transpose([self.loop[dataSource['Name']].xData, self.loop[dataSource['Name']].yData,
+                                                            self.loop[dataSource['Name']].zData, self.loop[dataSource['Name']].xGyro,
+                                                            self.loop[dataSource['Name']].yGyro, self.loop[dataSource['Name']].zGyro]),
+                       delimiter=",")
 
 
-class Canvas(app.Canvas):
-    def __init__(self):
-        app.Canvas.__init__(self, title='Use your wheel to zoom!',
-                            keys='interactive')
-        self.program = gloo.Program(realtimelib.VERT_SHADER, realtimelib.FRAG_SHADER)
-        self.program['a_position'] = displayData.reshape(-1, 1)
-        self.program['a_color'] = realtimelib.color
-        self.program['a_index'] = realtimelib.index
-        self.program['u_scale'] = (1., 1.)
-        self.program['u_size'] = (realtimelib.nrows, realtimelib.ncols)
-        self.program['u_n'] = realtimelib.n
+class ClDisplayDataQT:
+    """
+    Displays data using QT interface
+    """
+    def __init__(self, sources):
 
-        gloo.set_viewport(0, 0, *self.physical_size)
+        self.sources = sources
+        self.win = pg.GraphicsWindow(title="Received Signal(s)")  # creates a window
+        self.win.resize(1000, 600)
+        self.plotData = {}
+        self.plot = {}
 
-        self._timer = app.Timer('auto', connect=self.on_timer, start=True)
+        # Enable antialiasing for prettier plots
+        pg.setConfigOptions(antialias=True)
 
-        gloo.set_state(clear_color='black', blend=True,
-                       blend_func=('src_alpha', 'one_minus_src_alpha'))
+        for dataSource in self.sources:
+            dataName = dataSource['Name']
+            # self.sources[dataName] = dataSource
 
-        self.show()
+            self.plotData[dataName] = {}
+            self.plot[dataName] = {}
 
-    def on_resize(self, event):
-        gloo.set_viewport(0, 0, *event.physical_size)
+            # for item in ['AccX', 'AccY', 'AccZ', 'AngX', 'AngY', 'AngZ']:
+            for item in ['AccX', 'AccY', 'AngZ']:
+                self.plotData[dataName][item] = self.win.addPlot(title="{} {} Acceleration".format(dataName, item))
+                self.plot[dataName][item] = self.plotData[dataName][item].plot(pen=(255, 0, 0))
 
-    def on_mouse_wheel(self, event):
-        dx = np.sign(event.delta[1]) * .05
-        scale_x, scale_y = self.program['u_scale']
-        scale_x_new, scale_y_new = (scale_x * math.exp(2.5*dx),
-                                    scale_y * math.exp(0.0*dx))
-        self.program['u_scale'] = (max(1, scale_x_new), max(1, scale_y_new))
-        self.update()
+            self.win.nextRow()
 
-    def on_timer(self, event):
-        """Add some data at the end of each signal (real-time signals)."""
-        k = 10
+        self.timer = QtCore.QTimer()
+        self.timer.setInterval(10) # in milliseconds
+        self.timer.start()
+        self.timer.timeout.connect(self.fnUpdate)
 
-        print('Running canvas.')
-
-        self.program['a_position'].set_data(displayData.ravel().astype(np.float32))
-        self.update()
-
-    def on_draw(self, event):
-        gloo.clear()
-        self.program.draw('line_strip')
+    # Realtime data plot. Each time this function is called, the data display is updated
+    def fnUpdate(self):
+        for dataSource in self.sources:
+            # for i, item in enumerate(['AccX', 'AccY', 'AccZ', 'AngX', 'AngY', 'AngZ']):
+            for i, item in enumerate(['AccX', 'AccY', 'AngZ']):
+                self.plot[dataSource['Name']][item].setData(dataSource['DisplayData'][i, :])  # set the curve with this data
 
 
 class ClWheelDataParsing:
@@ -121,12 +126,14 @@ class ClWheelDataParsing:
     Displays data using pyQTgraph.
     """
 
-    def __init__(self, source):
+    def __init__(self, dataSource):
         """
         Initializes variables and CSV data storage.
         """
 
-        self.IMU = ClBluetoothConnect(source['Address'])
+        self.displayData = dataSource['DisplayData']
+
+        self.IMU = ClBluetoothConnect(dataSource['Address'])
 
         self.xData = []
         self.yData = []
@@ -135,7 +142,7 @@ class ClWheelDataParsing:
         self.yGyro = []
         self.zGyro = []
 
-        self.IMUStorage = source['DataPath']
+        self.IMUStorage = dataSource['DataPath']
 
     def fnRun(self):
         """
@@ -179,11 +186,8 @@ class ClWheelDataParsing:
         """
         Stores data into CSV storage.
         """
-        # with open(self.IMUStorage, mode='a') as csvfile:
-        #     writer = csv.writer(csvfile)
-        #     writer.writerow([xAcc, yAcc, zAcc, xGyro, yGyro, zGyro])
-        displayData[:,:] = np.roll(displayData, -1)
-        displayData[0:6, -1] = [xAcc, yAcc, zAcc, xGyro, yGyro, zGyro]
+        self.displayData[:,:] = np.roll(self.displayData, -1)
+        self.displayData[0:6, -1] = [xAcc, yAcc, zAcc, xGyro, yGyro, zGyro]
         self.xData.append(xAcc)
         self.yData.append(yAcc)
         self.zData.append(zAcc)
@@ -267,9 +271,19 @@ class ClBluetoothConnect:
 
 
 if __name__ == "__main__":
-    # loop = ClWheelDataParsing(Left)
-    # loop.fnRun()
-    UIWrap = ClUIWrapper(Right)
+
+    # UIWrapLeft = ClUIWrapper(Left)
+    # UIWrapRight = ClUIWrapper(Right)
+    #
+    # worker1 = Process(target=UIWrapLeft.fnStart)
+    # worker1.start()
+    # worker2 = Process(target=UIWrapRight.fnStart)
+    # worker2.start()
+    #
+    # worker1.join()
+    # worker2.join()
+
+    UIWrap = ClUIWrapper([Left, Right])
     UIWrap.fnStart()
 
     name = input('What is your name? \n')
