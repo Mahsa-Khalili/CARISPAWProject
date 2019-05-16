@@ -2,5 +2,4 @@
 venv/
 WheelModule/TeensyWheelModule/libraries/
 WheelModule/IMU Data/
-WheelModule/libraries/
 .idea/
