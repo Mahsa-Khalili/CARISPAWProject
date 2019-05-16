@@ -1,0 +1,28 @@
+message frameUnit{
+	optional float time_stamp=8;
+	optional bool isStamp = 9;
+	optional string sensorID = 3;
+	optional float acc_x_6050 = 1;
+	optional float acc_y_6050 = 2;
+	optional float acc_z_6050 = 4;
+	optional float angular_x_6050 = 5;
+	optional float angular_y_6050 = 6;
+	optional float angular_z_6050 = 7;
+	optional float acc_x_9250 = 1;
+	optional float acc_y_9250 = 2;
+	optional float acc_z_9250 = 4;
+	optional float angular_x_9250 = 5;
+	optional float angular_y_9250 = 6;
+	optional float angular_z_9250 = 7;
+	
+
+	optional float USensorForward = 10;
+	optional float USensorDownward = 11;
+
+	optional bytes piCamImage = 12;
+	optional int32 imageHeight = 14;
+	optional int32 imageWidth = 13;
+
+}
+
+
