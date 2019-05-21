@@ -7,10 +7,10 @@ Purpose:        This code aims to do perform two primary objectives:
                 2. Receive IMU data from Teensy wheel module for storage and real-time display.
 
                 To do so, the code utilizes pybluez for bluetooth connection, cobs for byte en/decoding, and Google's
-                protobuf protocol for serializing the structured daya. The protobuf interpreter can be found as imuMsg.
+                protobuf protocol for serializing the structured data. The protobuf interpreter can be found as imuMsg.
 
                 The data is displayed using the PyQTgraph library, updating at 100 ms intervals. When the display window
-                is closed, the code will than dump the data into a file found in the IMUdata subdirectory.
+                is closed, the code will than dump the data into a file found in the IMU Data subdirectory.
 """
 
 
@@ -27,26 +27,28 @@ from libraries.imumsg import imumsg_pb2 as imuMsg
 from pyqtgraph.Qt import QtGui
 from PyQt5 import QtCore
 import threading
+import math
 
 
 # DEFINITIONS
 
 dir_path = os.path.dirname(os.path.realpath(__file__))  # Current file directory
 
-HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
-PORT = 65432        # Port to listen on (non-privileged ports are > 1023)
-
 # Python dictionaries storing name of data source, bluetooth address, data storage path, and the recorded data
-RaspberryPi = {'Source': 'Pi', 'Address': 'B8:27:EB:6B:15:7F'}
 Left = {'Name': 'Left', 'Address': '98:D3:51:FD:AD:F5',
-        'AccPath': os.path.join('IMU Data', '{} rightAccMessage.csv'.format(datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
-        'GyroPath': os.path.join('IMU Data', '{} rightGyroMessage.csv'.format(datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+        'AccPath': os.path.join('IMU Data', '{} leftAcc.csv'.format(
+            datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+        'GyroPath': os.path.join('IMU Data', '{} leftGyro.csv'.format(
+            datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
         'DisplayData': np.zeros((6, 1000))}
 Right = {'Name': 'Right', 'Address': '98:D3:81:FD:48:C9',
-         'AccPath': os.path.join('IMU Data', '{} leftAccMessage.csv'.format(datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
-         'GyroPath': os.path.join('IMU Data', '{} leftGyroMessage.csv'.format(datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+         'AccPath': os.path.join('IMU Data', '{} rightAcc.csv'.format(
+             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+         'GyroPath': os.path.join('IMU Data', '{} rightGyro.csv'.format(
+             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
          'DisplayData': np.zeros((6, 1000))}
 
+# Dictionary containing
 IMUDataDict = {'X Acceleration (G)': 0, 'Y Acceleration (G)': 1, 'Z Acceleration (G)': 2,
                'X Angular Velocity (rad/s)': 3, 'Y Angular Velocity (rad/s)': 4, 'Z Angular Velocity (rad/s)': 5}
 
@@ -64,7 +66,7 @@ class ClUIWrapper():
         Passed:     Sources of data (Left wheel and/or right wheel)
         """
 
-        self.sources = sources  # Make globally set source dictionaries available to class
+        self.sources = sources  # Make passed list of sources available to class
         self.wheelDAQLoop = {}  # Initialize dictionary containing wheel data acquisition loops
 
         for dataSource in self.sources:
@@ -240,14 +242,14 @@ class ClWheelDataParsing:
         TODO:       Look at efficiency of roll and if using indexing would be faster.
         """
         self.displayData[:,:] = np.roll(self.displayData, -1)
-        self.displayData[0:6, -1] = [xAcc, yAcc, zAcc, xGyro, yGyro, zGyro]
+        self.displayData[0:6, -1] = [xAcc, yAcc, zAcc, xGyro * math.pi / 180, yGyro * math.pi / 180, zGyro * math.pi / 180]
         self.timeStamp.append(timeStamp)
         self.xData.append(xAcc)
         self.yData.append(yAcc)
         self.zData.append(zAcc)
-        self.xGyro.append(xGyro)
-        self.yGyro.append(yGyro)
-        self.zGyro.append(zGyro)
+        self.xGyro.append(xGyro * math.pi / 180)
+        self.yGyro.append(yGyro * math.pi / 180)
+        self.zGyro.append(zGyro * math.pi / 180)
 
 
 class ClBluetoothConnect:
@@ -357,7 +359,7 @@ class ClBluetoothConnect:
 if __name__ == "__main__":
 
     # Run user interface for data collection
-    UIWrap = ClUIWrapper([Right])
+    UIWrap = ClUIWrapper([Left])
     UIWrap.fnStart()
     print(input('What is your name? \n'))
     pass
