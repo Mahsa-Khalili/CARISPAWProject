@@ -90,6 +90,19 @@ void setup() {
     Serial.println("Pass Selftest!");  
       
     mpu.calibrateMPU6050(gyroBias, accelBias); // Calibrate gyro and accelerometers, load biases in bias registers  
+
+    Serial.println("MPU6050 bias");
+    Serial.println(" x\t  y\t  z  ");
+    Serial.print((int)(1000 * accelBias[0])); Serial.print('\t');
+    Serial.print((int)(1000 * accelBias[1])); Serial.print('\t');
+    Serial.print((int)(1000 * accelBias[2]));
+    Serial.println(" mg");
+
+    Serial.print(gyroBias[0], 1); Serial.print('\t');
+    Serial.print(gyroBias[1], 1); Serial.print('\t');
+    Serial.print(gyroBias[2], 1);
+    Serial.println(" o/s");
+    
     mpu.initMPU6050(); Serial.println("MPU6050 initialized for active data mode...."); // Initialize device for active mode read of acclerometer, gyroscope, and temperature
 
    }
@@ -286,7 +299,7 @@ void sendMsgCobs(uint8_t* msg, int msgLen){
   /* Append message to end of length*/
   for(int i = 0;i<msgLen;i++){
     _msgLenBuffer[4+i] = msg[i];
-    Serial.println("Sending byte" );
+//    Serial.println("Sending byte" );
 
 //    Serial.println((byte)msg[i]);
   }

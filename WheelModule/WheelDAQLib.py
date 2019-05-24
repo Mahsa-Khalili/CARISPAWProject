@@ -1,10 +1,10 @@
 """
 Author:         Kevin Ta
 Date:           2019 May 7th
-Purpose:        This code aims to do perform two primary objectives:
+Purpose:        This library aims to do perform two primary objectives:
 
                 1. Establish Bluetooth connection with Teensy wheel modules for data acquisition.
-                2. Receive IMU data from Teensy wheel module for storage and real-time display.
+                2. Parse and store data.
 
                 To do so, the code utilizes pybluez for bluetooth connection, cobs for byte en/decoding, and Google's
                 protobuf protocol for serializing the structured data. The protobuf interpreter can be found as imuMsg.
@@ -28,6 +28,7 @@ from pyqtgraph.Qt import QtGui
 from PyQt5 import QtCore
 import threading
 import math
+import time
 
 
 # DEFINITIONS
@@ -40,13 +41,13 @@ Left = {'Name': 'Left', 'Address': '98:D3:51:FD:AD:F5',
             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
         'GyroPath': os.path.join('IMU Data', '{} leftGyro.csv'.format(
             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
-        'DisplayData': np.zeros((6, 1000))}
+        'DisplayData': np.zeros((7, 1000))}
 Right = {'Name': 'Right', 'Address': '98:D3:81:FD:48:C9',
          'AccPath': os.path.join('IMU Data', '{} rightAcc.csv'.format(
              datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
          'GyroPath': os.path.join('IMU Data', '{} rightGyro.csv'.format(
              datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
-         'DisplayData': np.zeros((6, 1000))}
+         'DisplayData': np.zeros((7, 1000))}
 
 # Dictionary containing
 IMUDataDict = {'X Acceleration (G)': 0, 'Y Acceleration (G)': 1, 'Z Acceleration (G)': 2,
@@ -182,8 +183,12 @@ class ClWheelDataParsing:
 
         self.IMU = ClBluetoothConnect(dataSource['Address']) # Creates bluetooth connection instance with wheel module
 
+        self.refTime = 0
+        self.timeOffset = 0
+
         # Create class storage variables
         self.timeStamp = []
+        self.timeReceived = []
         self.xData = []
         self.yData = []
         self.zData = []
@@ -203,6 +208,16 @@ class ClWheelDataParsing:
         self.IMU.fnCOBSIntialClear() # Wait until message received starts at the correct location
 
         # Cycle through data retrieval until bluetooth disconnects
+        for i in range(1000):
+            if status != 'Disconnected.':
+                status = self.IMU.fnRetieveIMUMessage()
+                self.fnReceiveData(self.IMU.cobsMessage, 'wait')
+
+        if status != 'Disconnected.':
+            status = self.IMU.fnRetieveIMUMessage()
+            self.fnReceiveData(self.IMU.cobsMessage, 'init')
+
+        # Cycle through data retrieval until bluetooth disconnects
         while status != 'Disconnected.':
             status = self.IMU.fnRetieveIMUMessage()
             self.fnReceiveData(self.IMU.cobsMessage)
@@ -211,7 +226,8 @@ class ClWheelDataParsing:
         # TODO: Make socket terminate / escape from loop above when exiting display window.
         self.IMU.sock.close()
 
-    def fnReceiveData(self, msg):
+
+    def fnReceiveData(self, msg, state = 'stream'):
         """
         Purpose:    Unpack data coming from Teensy wheel module and calls fnStoreData to store data.
         Passed:     Cobs deciphered byte string message.
@@ -220,20 +236,27 @@ class ClWheelDataParsing:
         # Try to decipher message based on preset protobuf specifications
         try:
             # Get data dize
-            dataSizeArray = msg[:4]
-            dataSize = struct.unpack("<L", dataSizeArray)[0]
+            # dataSizeArray = msg[:4]
+            # dataSize = struct.unpack("<L", dataSizeArray)[0]
 
             # Pass msg to imuMsg to parse into float values stored in imuMsg instance
             data = msg[4:]
             imuMsgBT = imuMsg.IMUInfo()
             imuMsgBT.ParseFromString(data)
-            # Append data to display data and class variables
-            self.fnStoreData(imuMsgBT.time_stamp, imuMsgBT.acc_x, imuMsgBT.acc_y, imuMsgBT.acc_z,
-                             imuMsgBT.angular_x, imuMsgBT.angular_y, imuMsgBT.angular_z)
+
+            if state == 'init':
+                self.refTime = time.time()
+                self.timeOffset = imuMsgBT.time_stamp / 1000000
+            elif state == 'stream':
+                self.timeReceived.append(time.time())
+                self.fnStoreData(self.refTime + imuMsgBT.time_stamp / 1000000 - self.timeOffset, imuMsgBT.acc_x * 9.8065, imuMsgBT.acc_y * 9.8065, imuMsgBT.acc_z * 9.8065,
+                                 imuMsgBT.angular_x * math.pi / 180, imuMsgBT.angular_y * math.pi / 180, imuMsgBT.angular_z * math.pi / 180)
+            # self.fnStoreData(imuMsgBT.time_stamp / 1000000, imuMsgBT.acc_x * 9.8065, imuMsgBT.acc_y * 9.8065, imuMsgBT.acc_z * 9.8065,
+            #                  imuMsgBT.angular_x * math.pi / 180, imuMsgBT.angular_y * math.pi / 180, imuMsgBT.angular_z * math.pi / 180)
 
         # Returns exceptions as e to avoid code crash but still allow for debugging
         except Exception as e:
-            print (e)
+            print(e)
 
     def fnStoreData(self, timeStamp, xAcc, yAcc, zAcc, xGyro, yGyro, zGyro):
         """
@@ -242,14 +265,21 @@ class ClWheelDataParsing:
         TODO:       Look at efficiency of roll and if using indexing would be faster.
         """
         self.displayData[:,:] = np.roll(self.displayData, -1)
-        self.displayData[0:6, -1] = [xAcc, yAcc, zAcc, xGyro * math.pi / 180, yGyro * math.pi / 180, zGyro * math.pi / 180]
+        self.displayData[0:7, -1] = [time.time(), xAcc, yAcc, zAcc, xGyro, yGyro, zGyro]
         self.timeStamp.append(timeStamp)
         self.xData.append(xAcc)
         self.yData.append(yAcc)
         self.zData.append(zAcc)
-        self.xGyro.append(xGyro * math.pi / 180)
-        self.yGyro.append(yGyro * math.pi / 180)
-        self.zGyro.append(zGyro * math.pi / 180)
+        self.xGyro.append(xGyro)
+        self.yGyro.append(yGyro)
+        self.zGyro.append(zGyro)
+
+    def fnSaveData(self, dataSource):
+
+        AccData = np.transpose(np.array([self.timeReceived, self.timeStamp, self.xData, self.yData, self.zData]))
+        GyroData = np.transpose(np.array([self.timeReceived, self.timeStamp, self.xGyro, self.yGyro, self.zGyro]))
+        np.savetxt(dataSource['AccPath'], AccData.astype(float), delimiter = ",")
+        np.savetxt(dataSource['GyroPath'], GyroData.astype(float), delimiter = ",")
 
 
 class ClBluetoothConnect:

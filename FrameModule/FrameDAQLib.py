@@ -179,8 +179,7 @@ class ClFrameDataParsing:
         Passed:
         """
 
-        self.displayData6050 = dataSource['DisplayData6050'] # Make shared display data variable accessible
-        self.displayData9250 = dataSource['DisplayData9250']  # Make shared display data variable accessible
+        self.displayData = dataSource['DisplayData'] # Make shared display data variable accessible
 
         self.FrameUnit = ClTCPServer() # Create TCP Server
 
@@ -256,15 +255,13 @@ class ClFrameDataParsing:
         Passed:     Teensy time values, (x, y, z) acceleration in Gs, (x, y, z) angular velocity in rad/s.
         TODO:       Look at efficiency of roll and if using indexing would be faster.
         """
-        self.displayData6050[:,:] = np.roll(self.displayData6050, -1)
-        self.displayData6050[0:6, -1] = [frameUnitPB.acc_x_6050, frameUnitPB.acc_y_6050, frameUnitPB.acc_z_6050,
-                                         frameUnitPB.angular_x_6050, frameUnitPB.angular_y_6050,
-                                         frameUnitPB.angular_z_6050]
-
-        self.displayData9250[:,:] = np.roll(self.displayData9250, -1)
-        self.displayData9250[0:6, -1] = [frameUnitPB.acc_x_9250, frameUnitPB.acc_y_9250, frameUnitPB.acc_z_9250,
+        self.displayData[:,:] = np.roll(self.displayData, -1)
+        self.displayData[0:7, -1] = [frameUnitPB.time_stamp, frameUnitPB.acc_x_9250, frameUnitPB.acc_y_9250, frameUnitPB.acc_z_9250,
                                          frameUnitPB.angular_x_9250, frameUnitPB.angular_y_9250,
                                          frameUnitPB.angular_z_9250]
+        self.displayData[7:12, -1] = [frameUnitPB.acc_x_6050, frameUnitPB.acc_y_6050, frameUnitPB.acc_z_6050,
+                                         frameUnitPB.angular_x_6050, frameUnitPB.angular_y_6050,
+                                         frameUnitPB.angular_z_6050]
 
         self.timeStamp.append(frameUnitPB.time_stamp)
         self.xData6050.append(frameUnitPB.acc_x_6050)
@@ -280,6 +277,13 @@ class ClFrameDataParsing:
         self.xGyro9250.append(frameUnitPB.angular_x_9250)
         self.yGyro9250.append(frameUnitPB.angular_y_9250)
         self.zGyro9250.append(frameUnitPB.angular_z_9250)
+
+        def fnSaveData(self, dataSource):
+
+            AccData = np.transpose([self.timeStamp, self.xData9250, self.yData9250, self.zData9250])
+            GyroData = np.transpose([self.timeStamp, self.xGyro9250, self.yGyro9250, self.zGyro9250])
+            np.savetxt(dataSource['AccPath9250'], AccData, delimiter=",")
+            np.savetxt(dataSource['GyroPath9250'], GyroData, delimiter=",")
 
 class ClTCPServer:
     """
