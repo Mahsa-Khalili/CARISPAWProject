@@ -232,7 +232,7 @@ if __name__ == "__main__":
     #         status = 'Inactive'
     #         print('Sources: {}'.format([source['Name'] for source in sources]))
 
-    sources = [LeftPhone, Left]
+    sources = [Left, LeftPhone]
 
     instUIWrapper = ClUIWrapper(sources)
     instUIWrapper.fnStart()

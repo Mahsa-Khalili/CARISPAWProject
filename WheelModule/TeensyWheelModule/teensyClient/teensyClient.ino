@@ -149,10 +149,10 @@ void loop() {
       tempCount = mpu.readTempData();  // Read the x/y/z adc values
       temperature = ((float) tempCount) / 340. + 36.53; // Temperature in degrees Centigrade
     }  
-  /*   
-      uint32_t deltat = millis() - count;
-      if(deltat > 500) {
-   
+     
+    uint32_t deltat = millis() - count;
+    if(deltat > 500) {
+ 
       // Print acceleration values in milligs!
       Serial.print("X-acceleration: "); Serial.print(1000*ax); Serial.print(" mg "); 
       Serial.print("Y-acceleration: "); Serial.print(1000*ay); Serial.print(" mg "); 
@@ -163,23 +163,23 @@ void loop() {
       Serial.print("Y-gyro rate: "); Serial.print(gy, 1); Serial.print(" degrees/sec "); 
       Serial.print("Z-gyro rate: "); Serial.print(gz, 1); Serial.println(" degrees/sec"); 
       
-      // Print temperature in degrees Centigrade      
-      Serial.print("Temperature is ");  Serial.print(temperature, 2);  Serial.println(" degrees C"); // Print T values to tenths of s degree C
-      Serial.println("");
+//      // Print temperature in degrees Centigrade      
+//      Serial.print("Temperature is ");  Serial.print(temperature, 2);  Serial.println(" degrees C"); // Print T values to tenths of s degree C
+//      Serial.println("");
           
       count = millis();
-      }
-  */
+    }
+  
       
-      //*****Send message over BT*****//
-      // Update the value of IMU sensor.
-      pbMsgGenerator.addIMUData(micros(), ax, ay, az, gx, gy, gz);
-  
-      // Get length of message
-      int lengthf = pbMsgGenerator.generatePBMessage();
-  
-      // Compile into cobs packet and send
-      sendMsgCobs(pbMsgGenerator.getPBMessage(), lengthf);
+    //*****Send message over BT*****//
+    // Update the value of IMU sensor.
+    pbMsgGenerator.addIMUData(micros(), ax, ay, az, gx, gy, gz);
+
+    // Get length of message
+    int lengthf = pbMsgGenerator.generatePBMessage();
+
+    // Compile into cobs packet and send
+    sendMsgCobs(pbMsgGenerator.getPBMessage(), lengthf);
   }
 }
 
