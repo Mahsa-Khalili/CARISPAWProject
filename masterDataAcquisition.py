@@ -24,8 +24,6 @@ from PyQt5 import QtCore
 dir_path = os.path.dirname(os.path.realpath(__file__))  # Current file directory
 
 PI_HOST = ''           # Accept all connections from Pi
-PI_PORT = 65432        # Port to listen on from Pi (non-privileged ports are > 1023)
-
 PHONE_HOST = ''        # Accept all connections from Phone
 
 # CUSTOM LIBRARIES
@@ -55,7 +53,7 @@ Right = {'Name': 'Right', 'Address': '98:D3:81:FD:48:C9',
              datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
          'DisplayData': np.zeros((7, 1000))}
 
-RaspberryPi = {'Name': 'Pi', 'Address': 'B8:27:EB:6B:15:7F',
+RaspberryPi = {'Name': 'Frame', 'Address': 'B8:27:EB:A3:ED:6F', 'Port': 65432,
                'AccPath6050': os.path.join('IMU Data', '{} Frame6050Acc.csv'.format(
                    datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
                'GyroPath6050': os.path.join('IMU Data', '{} Frame6050Gyro.csv'.format(
@@ -80,8 +78,15 @@ RightPhone = {'Name': 'Right Phone', 'Port': 6666,
              datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
          'DisplayData': np.zeros((7, 1000))}
 
+FramePhone = {'Name': 'Frame Phone', 'Port': 7777,
+         'AccPath': os.path.join('IMU Data', '{} RightPhoneAcc.csv'.format(
+             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+         'GyroPath': os.path.join('IMU Data', '{} RightPhoneGyro.csv'.format(
+             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+         'DisplayData': np.zeros((7, 1000))}
+
 # Dictionary associating measurement descriptions to array space
-IMUDataDict = {'X Acceleration (G)': 1, 'Y Acceleration (G)': 2, 'Z Acceleration (G)': 3,
+IMUDataDict = {'X Acceleration (m/s^2)': 1, 'Y Acceleration (m/s^2)': 2, 'Z Acceleration (m/s^2)': 3,
                'X Angular Velocity (rad/s)': 4, 'Y Angular Velocity (rad/s)': 5, 'Z Angular Velocity (rad/s)': 6}
 
 # Default Tableau color set for plotting
@@ -109,9 +114,9 @@ class ClUIWrapper():
         for dataSource in self.sources:
             if dataSource['Name'] in ['Left', 'Right']:
                 self.instDAQLoop[dataSource['Name']] = ClWheelDataParsing(dataSource)
-            if dataSource['Name'] in ['Pi']:
-                self.instDAQLoop[dataSource['Name']] = ClFrameDataParsing(dataSource)
-            if dataSource['Name'] in ['Left Phone', 'Right Phone']:
+            if dataSource['Name'] in ['Frame']:
+                self.instDAQLoop[dataSource['Name']] = ClFrameDataParsing(dataSource, protocol = 'BT')
+            if dataSource['Name'] in ['Left Phone', 'Right Phone', 'Frame Phone']:
                 self.instDAQLoop[dataSource['Name']] = ClPhoneDataParsing(dataSource, dataSource['Port'])
             dataSource['DisplayData'][0,:] = time.time()
 
@@ -160,7 +165,8 @@ class ClDisplayDataQT:
         self.plot = {} # Create dictionary for subplots
         self.plotData = {} # Create dictionary for subplot data
 
-        for item in ['X Acceleration (G)', 'Y Acceleration (G)', 'Z Angular Velocity (rad/s)']:
+        for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Acceleration (m/s^2)']:
+        # for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Angular Velocity (rad/s)']:
             self.plot[item] = self.win.addPlot(title="{}".format(item), clipToView=True)
 
         # Cycle through each data source and set-up plotting information
@@ -171,7 +177,8 @@ class ClDisplayDataQT:
             self.plotData[dataName] = {}
             self.plot[dataName] = {}
 
-            for item in ['X Acceleration (G)', 'Y Acceleration (G)', 'Z Angular Velocity (rad/s)']:
+            for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Acceleration (m/s^2)']:
+            # for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Angular Velocity (rad/s)']:
                 self.plotData[dataName][item] = self.plot[item].plot(pen=PenColors[i])
 
             # Create new row for each source
@@ -179,7 +186,7 @@ class ClDisplayDataQT:
 
         # Set update period for display, lowering setInterval requires more processing and leads to more issues
         self.timer = QtCore.QTimer()
-        self.timer.setInterval(100) # in milliseconds
+        self.timer.setInterval(200) # in milliseconds
         self.timer.start()
         self.timer.timeout.connect(self.fnUpdate) # Sets timer to trigger fnUpdate
 
@@ -192,7 +199,8 @@ class ClDisplayDataQT:
 
         # Cycles through sources and update plots
         for dataSource in self.sources:
-            for item in ['X Acceleration (G)', 'Y Acceleration (G)', 'Z Angular Velocity (rad/s)']:
+            for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Acceleration (m/s^2)']:
+            # for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Angular Velocity (rad/s)']:
                 self.plotData[dataSource['Name']][item].setData(dataSource['DisplayData'][0, :],
                                                                 dataSource['DisplayData'][IMUDataDict[item], :])
 
@@ -231,9 +239,12 @@ if __name__ == "__main__":
     #     else:
     #         status = 'Inactive'
     #         print('Sources: {}'.format([source['Name'] for source in sources]))
-
-    sources = [Left, LeftPhone]
+    #
+    sources = [RaspberryPi]
 
     instUIWrapper = ClUIWrapper(sources)
     instUIWrapper.fnStart()
 
+    # import bluetooth
+    # sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+    # sock.connect((BTAddress, 1))

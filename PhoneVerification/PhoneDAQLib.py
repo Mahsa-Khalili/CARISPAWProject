@@ -193,8 +193,8 @@ class ClPhoneDataParsing:
         Passed:     dataSource dictionary that contains save path.
         """
 
-        AccData = np.transpose(np.array([self.timeReceived, self.timeStamp, self.xData, self.yData, self.zData]))
-        GyroData = np.transpose(np.array([self.timeReceived, self.timeStamp, self.xGyro, self.yGyro, self.zGyro]))
+        AccData = np.transpose(np.array([np.array(self.timeReceived), np.array(self.timeStamp), np.array(self.xData), np.array(self.yData), np.array(self.zData)]))
+        GyroData = np.transpose(np.array([np.array(self.timeReceived), np.array(self.timeStamp), np.array(self.xGyro), np.array(self.yGyro), np.array(self.zGyro)]))
         np.savetxt(dataSource['AccPath'], AccData.astype(float), delimiter=",")
         np.savetxt(dataSource['GyroPath'], GyroData.astype(float), delimiter=",")
 
