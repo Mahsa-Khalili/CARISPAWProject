@@ -21,6 +21,7 @@ import os
 import time
 import datetime
 import numpy as np
+import pandas as pd
 import math
 import socket
 import bluetooth
@@ -37,7 +38,18 @@ from cobs import cobs
 dir_path = os.path.dirname(os.path.realpath(__file__))  # Current file directory
 
 HOST = ''           # Accept all connections
-PORT = 65432        # Port to listen on (non-privileged ports are > 1023)
+
+RaspberryPi = {'Name': 'Frame', 'Address': 'B8:27:EB:A3:ED:6F', 'Port': 65432, 'Placement': 'Middle', 'Device': 'Frame',
+               'AccPath6050': os.path.join('IMU Data', '{} Frame6050Acc.csv'.format(
+                   datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+               'GyroPath6050': os.path.join('IMU Data', '{} Frame6050Gyro.csv'.format(
+                   datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+               'AccPath9250': os.path.join('IMU Data', '{} Frame9250Acc.csv'.format(
+                   datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+               'GyroPath9250': os.path.join('IMU Data', '{} Frame9250Gyro.csv'.format(
+                   datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+                'Path': '',
+               'DisplayData': np.zeros((13, 1000))} # 9250 then 6050
 
 # CLASSES
 
@@ -46,11 +58,13 @@ class ClFrameDataParsing:
     Class that instantiates ClTCPServer to connect to Pi, receiving MPU6050/9250 data.
     """
 
-    def __init__(self, dataSource, commPort = PORT, protocol = 'UDP'):
+    def __init__(self, dataSource, commPort = 65432, protocol = 'UDP'):
         """
         Purpose:
         Passed:
         """
+
+        self.runStatus = True
 
         self.protocol = protocol
 
@@ -60,7 +74,7 @@ class ClFrameDataParsing:
 
         self.displayData = dataSource['DisplayData'] # Make shared display data variable accessible
 
-        self.FrameUnit = ClWifiServer(dataSource, self.protocol) # Create TCP Server
+        self.FrameUnit = ClWirelessServer(dataSource, self.protocol) # Create TCP Server
 
         # Create class storage variables
         self.timeReceived = []
@@ -85,9 +99,10 @@ class ClFrameDataParsing:
         Passed:     None.
         """
 
+        freqCount = 0
         status = 'Active.' # Set marker to active
 
-        if self.protocol == 'TCP':
+        if self.protocol == 'TCP' or "BT":
             self.FrameUnit.fnCOBSIntialClear() # Wait until message received starts at the correct location
 
         for i in range(500):
@@ -100,24 +115,17 @@ class ClFrameDataParsing:
             self.fnReceiveData(self.FrameUnit.cobsMessage, state='init')
 
         # Cycle through data retrieval until bluetooth disconnects
-        while status != 'Disconnected.':
+        while status != 'Disconnected.' and self.runStatus:
             status = self.FrameUnit.fnRetievePiMessage()
             self.fnReceiveData(self.FrameUnit.cobsMessage)
+            freqCount += 1
+            if freqCount >= 500:
+                freqCount = 0
+                print('Frame Frequency: {} Hz'.format(500/(self.timeStamp[-1] - self.timeStamp[-501])))
 
         # Close socket connection
         # TODO: Make socket terminate / escape from loop above when exiting display window.
         self.FrameUnit.fnShutDown()
-
-    def fnSaveData(self, dataSource):
-
-        AccData6050 = np.transpose([self.timeStamp, self.xData6050, self.yData6050, self.zData6050])
-        GyroData6050 = np.transpose([self.timeStamp, self.xGyro6050, self.yGyro6050, self.zGyro6050])
-        AccData9250 = np.transpose([self.timeStamp, self.xData9250, self.yData9250, self.zData9250])
-        GyroData9250 = np.transpose([self.timeStamp, self.xGyro9250, self.yGyro9250, self.zGyro9250])
-        np.savetxt(dataSource['AccPath6050'], AccData6050, delimiter=",")
-        np.savetxt(dataSource['GyroPath6050'], GyroData6050, delimiter=",")
-        np.savetxt(dataSource['AccPath9250'], AccData9250, delimiter=",")
-        np.savetxt(dataSource['GyroPath9250'], GyroData9250, delimiter=",")
 
     def fnReceiveData(self, msg, state = 'stream'):
         """
@@ -136,6 +144,9 @@ class ClFrameDataParsing:
             if state == 'init':
                 self.refTime = time.time()
                 self.timeOffset = frameUnitMsgRcv.time_stamp
+                self.timeReceived.append(time.time())
+                # Append data to display data and class variables
+                self.fnStoreData(frameUnitMsgRcv)
 
             elif state == 'stream':
                 self.timeReceived.append(time.time())
@@ -175,14 +186,34 @@ class ClFrameDataParsing:
         self.yGyro9250.append(frameUnitPB.angular_y_9250 * math.pi / 180)
         self.zGyro9250.append(frameUnitPB.angular_z_9250 * math.pi / 180)
 
-        def fnSaveData(self, dataSource):
+    def fnSaveData(self, dataSource):
 
-            AccData = np.transpose([np.array(self.timeStamp), np.array(self.xData9250), np.array(self.yData9250), np.array(self.zData9250)])
-            GyroData = np.transpose([np.array(self.timeStamp), np.array(self.xGyro9250), np.array(self.yGyro9250), np.array(self.zGyro9250)])
-            np.savetxt(dataSource['AccPath9250'], AccData, delimiter=",")
-            np.savetxt(dataSource['GyroPath9250'], GyroData, delimiter=",")
+        self.runStatus = False
+        time.sleep(2)
 
-class ClWifiServer:
+        # AccData6050 = np.transpose([self.timeStamp, self.xData6050, self.yData6050, self.zData6050])
+        # GyroData6050 = np.transpose([self.timeStamp, self.xGyro6050, self.yGyro6050, self.zGyro6050])
+        # AccData9250 = np.transpose([self.timeStamp, self.xData9250, self.yData9250, self.zData9250])
+        # GyroData9250 = np.transpose([self.timeStamp, self.xGyro9250, self.yGyro9250, self.zGyro9250])
+        # np.savetxt(dataSource['AccPath6050'], AccData6050, delimiter=",")
+        # np.savetxt(dataSource['GyroPath6050'], GyroData6050, delimiter=",")
+        # np.savetxt(dataSource['AccPath9250'], AccData9250, delimiter=",")
+        # np.savetxt(dataSource['GyroPath9250'], GyroData9250, delimiter=",")
+
+        timeString = [datetime.datetime.fromtimestamp(utcTime).strftime('%Y-%m-%d %H:%M:%S:%f')[:-3] for utcTime in self.timeStamp]
+
+        IMUData = pd.DataFrame({'ACCELEROMETER X (m/s²)': np.array(self.xData9250),
+                     'ACCELEROMETER Y (m/s²)': np.array(self.yData9250),
+                     'ACCELEROMETER Z (m/s²)': np.array(self.zData9250),
+                     'GYROSCOPE X (rad/s)': np.array(self.xGyro9250),
+                     'GYROSCOPE Y (rad/s)': np.array(self.yGyro9250),
+                     'GYROSCOPE Z (rad/s)': np.array(self.zGyro9250),
+                     'Time since start in ms ': np.array(self.timeStamp) - self.timeStamp[0],
+                     'YYYY-MO-DD HH-MI-SS_SSS': timeString})
+
+        IMUData.to_csv(dataSource['Path'], index = False)
+
+class ClWirelessServer:
     """
     Class
     """
@@ -303,6 +334,8 @@ class ClWifiServer:
 
 if __name__ == "__main__":
 
-    # Run user interface for data collection
-    print(input('What is your name? \n'))
-    pass
+    if not os.path.exists(os.path.join(dir_path, 'IMU Data')):
+        os.mkdir(os.path.join(dir_path, 'IMU Data'))
+
+    instFrameDataParsing = ClFrameDataParsing(RaspberryPi)
+    instFrameDataParsing.fnRun()

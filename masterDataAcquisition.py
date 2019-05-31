@@ -1,7 +1,9 @@
 """
 Author:         Kevin Ta
 Date:           2019 May 24th
-Purpose:        This Python code imports
+Purpose:        This Python code utilizes various custom data collection libraries to interface with the Wheelchair
+                data acquisition hardware. These include connections to the phones, the Teensy Wheel Modules, and the
+                Raspberry Pi Frame Modules.
 """
 
 
@@ -28,6 +30,8 @@ PHONE_HOST = ''        # Accept all connections from Phone
 
 # CUSTOM LIBRARIES
 
+# Include subdirectories for libraries
+# TODO: Reorganize file structure to have all libraries in shared folder
 sys.path.insert(0, os.path.join(dir_path, 'WheelModule'))
 sys.path.insert(0, os.path.join(dir_path, 'FrameModule'))
 sys.path.insert(0, os.path.join(dir_path, 'PhoneVerification'))
@@ -39,21 +43,23 @@ from PhoneDAQLib import ClPhoneDataParsing
 # DICTIONARIES
 
 # Python dictionaries storing name of data source, bluetooth address, data storage path, and the recorded data
-Left = {'Name': 'Left', 'Address': '98:D3:51:FD:AD:F5',
+Left = {'Name': 'Left', 'Address': '98:D3:51:FD:AD:F5', 'Placement': 'Left', 'Device': 'Wheel',
         'AccPath': os.path.join('IMU Data', '{} leftAcc.csv'.format(
             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
         'GyroPath': os.path.join('IMU Data', '{} leftGyro.csv'.format(
             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+        'Path': '',
         'DisplayData': np.zeros((7, 1000))}
 
-Right = {'Name': 'Right', 'Address': '98:D3:81:FD:48:C9',
+Right = {'Name': 'Right', 'Address': '98:D3:81:FD:48:C9', 'Placement': 'Right', 'Device': 'Wheel',
          'AccPath': os.path.join('IMU Data', '{} rightAcc.csv'.format(
              datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
          'GyroPath': os.path.join('IMU Data', '{} rightGyro.csv'.format(
              datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+         'Path': '',
          'DisplayData': np.zeros((7, 1000))}
 
-RaspberryPi = {'Name': 'Frame', 'Address': 'B8:27:EB:A3:ED:6F', 'Port': 65432,
+RaspberryPi = {'Name': 'Frame', 'Address': 'B8:27:EB:A3:ED:6F', 'Port': 65432, 'Placement': 'Middle', 'Device': 'Frame',
                'AccPath6050': os.path.join('IMU Data', '{} Frame6050Acc.csv'.format(
                    datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
                'GyroPath6050': os.path.join('IMU Data', '{} Frame6050Gyro.csv'.format(
@@ -62,28 +68,32 @@ RaspberryPi = {'Name': 'Frame', 'Address': 'B8:27:EB:A3:ED:6F', 'Port': 65432,
                    datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
                'GyroPath9250': os.path.join('IMU Data', '{} Frame9250Gyro.csv'.format(
                    datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+                'Path': '',
                'DisplayData': np.zeros((13, 1000))} # 9250 then 6050
 
-LeftPhone = {'Name': 'Left Phone', 'Port': 5555,
-         'AccPath': os.path.join('IMU Data', '{} LeftphoneAcc.csv'.format(
-             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
-         'GyroPath': os.path.join('IMU Data', '{} LeftphoneGyro.csv'.format(
-             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
-         'DisplayData': np.zeros((7, 1000))}
+LeftPhone = {'Name': 'Left Phone', 'Port': 5555, 'Placement': 'Left', 'Device': 'Phone',
+            'AccPath': os.path.join('IMU Data', '{} LeftphoneAcc.csv'.format(
+                datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+            'GyroPath': os.path.join('IMU Data', '{} LeftphoneGyro.csv'.format(
+                datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+            'Path': '',
+            'DisplayData': np.zeros((7, 1000))}
 
-RightPhone = {'Name': 'Right Phone', 'Port': 6666,
-         'AccPath': os.path.join('IMU Data', '{} RightPhoneAcc.csv'.format(
-             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
-         'GyroPath': os.path.join('IMU Data', '{} RightPhoneGyro.csv'.format(
-             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
-         'DisplayData': np.zeros((7, 1000))}
+RightPhone = {'Name': 'Right Phone', 'Port': 6666, 'Placement': 'Right', 'Device': 'Phone',
+              'AccPath': os.path.join('IMU Data', '{} RightPhoneAcc.csv'.format(
+                  datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+              'GyroPath': os.path.join('IMU Data', '{} RightPhoneGyro.csv'.format(
+                  datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+              'Path': '',
+              'DisplayData': np.zeros((7, 1000))}
 
-FramePhone = {'Name': 'Frame Phone', 'Port': 7777,
-         'AccPath': os.path.join('IMU Data', '{} RightPhoneAcc.csv'.format(
-             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
-         'GyroPath': os.path.join('IMU Data', '{} RightPhoneGyro.csv'.format(
-             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
-         'DisplayData': np.zeros((7, 1000))}
+FramePhone = {'Name': 'Frame Phone', 'Port': 7777,'Placement': 'Middle', 'Device': 'Phone',
+              'AccPath': os.path.join('IMU Data', '{} RightPhoneAcc.csv'.format(
+                  datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+              'GyroPath': os.path.join('IMU Data', '{} RightPhoneGyro.csv'.format(
+                  datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
+               'Path': '',
+              'DisplayData': np.zeros((7, 1000))}
 
 # Dictionary associating measurement descriptions to array space
 IMUDataDict = {'X Acceleration (m/s^2)': 1, 'Y Acceleration (m/s^2)': 2, 'Z Acceleration (m/s^2)': 3,
@@ -104,7 +114,7 @@ class ClUIWrapper():
         """
         Purpose:    Initialize class with sub-class structures and initial variables. Creates a parsing class
                     for every passed data source.
-        Passed:     Sources of data (Left Wheel, Right Wheel, Raspberry Pi, Left Phone, Right Phone)
+        Passed:     Sources of data (Left Wheel, Right Wheel, Raspberry Pi, Left Phone, Right Phone, Frame Phone)
         """
 
         self.sources = sources  # Make globally set source dictionaries available to class
@@ -141,7 +151,7 @@ class ClUIWrapper():
 
         self.app.exec_()  # Executes QT display update code until window is closed, necessary for code to run
 
-        # Stores data in IMU Data folder, accelerometer and angular velocity stored in separate files
+        # Stores data in IMU Data folder, IMU data mimics Androsensor csv file
         for dataSource in self.sources:
             self.instDAQLoop[dataSource['Name']].fnSaveData(dataSource)
 
@@ -161,7 +171,7 @@ class ClDisplayDataQT:
         self.sources = sources
 
         self.win = pg.GraphicsWindow(title="Received Signal(s)")  # creates a window
-        self.win.resize(1200, 400)# * len(sources)) # Resize window based on number of sources
+        self.win.resize(1200, 400)# Sets window size TODO: Look into dynamic resizing
         self.plot = {} # Create dictionary for subplots
         self.plotData = {} # Create dictionary for subplot data
 
@@ -174,9 +184,11 @@ class ClDisplayDataQT:
 
             dataName = dataSource['Name']
 
+            # Create nested dictionaries containing individual acceleration data
             self.plotData[dataName] = {}
             self.plot[dataName] = {}
 
+            # Initialize each source of data with specific Tableau color set
             for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Acceleration (m/s^2)']:
             # for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Angular Velocity (rad/s)']:
                 self.plotData[dataName][item] = self.plot[item].plot(pen=PenColors[i])
@@ -214,37 +226,50 @@ if __name__ == "__main__":
     print('l - Left Wheel Module')
     print('r - Right Wheel Module')
     print('f - Frame Module')
-    print('p - Phone')
+    print('L -  Left Phone')
+    print('M -  Middle Phone')
+    print('R -  Right Phone')
     print('None - End input or enter defaults')
 
-    # while status == 'Active':
-    #     source = input('Input: ')
-    #
-    #     if source == 'l' and Left not in sources:
-    #         sources.append(Left)
-    #         print('Sources: {}'.format([source['Name'] for source in sources]))
-    #     elif source == 'r' and Right not in sources:
-    #         sources.append(Right)
-    #         print('Sources: {}'.format([source['Name'] for source in sources]))
-    #     elif source == 'f' and RaspberryPi not in sources:
-    #         sources.append(RaspberryPi)
-    #         print('Sources: {}'.format([source['Name'] for source in sources]))
-    #     elif source == 'p' and Phone not in sources:
-    #         sources.append(Phone)
-    #         print('Sources: {}'.format([source['Name'] for source in sources]))
-    #     elif not sources:
-    #         status = 'Inactive'
-    #         sources = [Phone]
-    #         print('Sources: {}'.format([source['Name'] for source in sources]))
-    #     else:
-    #         status = 'Inactive'
-    #         print('Sources: {}'.format([source['Name'] for source in sources]))
-    #
-    sources = [RaspberryPi]
+    while status == 'Active':
+        source = input('Input: ')
+
+        if source == 'l' and Left not in sources:
+            sources.append(Left)
+            print('Sources: {}'.format([source['Name'] for source in sources]))
+        elif source == 'r' and Right not in sources:
+            sources.append(Right)
+            print('Sources: {}'.format([source['Name'] for source in sources]))
+        elif source == 'f' and RaspberryPi not in sources:
+            sources.append(RaspberryPi)
+            print('Sources: {}'.format([source['Name'] for source in sources]))
+        elif source == 'L' and LeftPhone not in sources:
+            sources.append(LeftPhone)
+            print('Sources: {}'.format([source['Name'] for source in sources]))
+        elif source == 'M' and FramePhone not in sources:
+            sources.append(FramePhone)
+            print('Sources: {}'.format([source['Name'] for source in sources]))
+        elif source == 'R' and RightPhone not in sources:
+            sources.append(RightPhone)
+            print('Sources: {}'.format([source['Name'] for source in sources]))
+        elif not sources:
+            status = 'Inactive'
+            sources = [Left, Right, RaspberryPi]
+            print('Sources: {}'.format([source['Name'] for source in sources]))
+        else:
+            status = 'Inactive'
+            print('Sources: {}'.format([source['Name'] for source in sources]))
+
+    # sources = [RaspberryPi]
+
+    # Create custom paths for different terrain tests
+    terrain = input('Input terrain type: ')
+
+    if not terrain:
+        terrain = datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S")
+
+    for dataSource in sources:
+        dataSource['Path'] = os.path.join('IMU Data', '{}{}{}.csv'.format(dataSource['Device'],dataSource['Placement'], terrain))
 
     instUIWrapper = ClUIWrapper(sources)
     instUIWrapper.fnStart()
-
-    # import bluetooth
-    # sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
-    # sock.connect((BTAddress, 1))
