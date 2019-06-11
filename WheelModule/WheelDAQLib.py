@@ -110,8 +110,6 @@ class ClWheelDataParsing:
         if status != 'Disconnected.':
             status = self.IMU.fnRetieveIMUMessage()
             self.fnReceiveData(self.IMU.cobsMessage, 'init')
-            status = self.IMU.fnRetieveIMUMessage()
-            self.fnReceiveData(self.IMU.cobsMessage)
 
         # Cycle through data retrieval until bluetooth disconnects
         while status != 'Disconnected.' and self.runStatus:
@@ -120,7 +118,7 @@ class ClWheelDataParsing:
             freqCount += 1
             if freqCount >= 500:
                 freqCount = 0
-                print('Wheel Frequency: {} Hz'.format(500/(self.timeStamp[-1] - self.timeStamp[-501])))
+                print('Wheel Frequency: {} Hz'.format(500/(self.timeReceived[-1] - self.timeReceived[-501])))
 
         # Close socket connection
         self.IMU.sock.close()
@@ -151,6 +149,8 @@ class ClWheelDataParsing:
             if state == 'init':
                 self.refTime = time.time()
                 self.timeOffset = imuMsgBT.time_stamp / 1000000
+                self.timeReceived.append(time.time())
+                self.fnStoreData(imuMsgBT)
 
             # Record data into approrpiate class lists and display data array
             elif state == 'stream':

@@ -125,7 +125,7 @@ class ClUIWrapper():
             if dataSource['Name'] in ['Left', 'Right']:
                 self.instDAQLoop[dataSource['Name']] = ClWheelDataParsing(dataSource)
             if dataSource['Name'] in ['Frame']:
-                self.instDAQLoop[dataSource['Name']] = ClFrameDataParsing(dataSource, protocol = 'BT')
+                self.instDAQLoop[dataSource['Name']] = ClFrameDataParsing(dataSource, protocol = 'TCP')
             if dataSource['Name'] in ['Left Phone', 'Right Phone', 'Frame Phone']:
                 self.instDAQLoop[dataSource['Name']] = ClPhoneDataParsing(dataSource, dataSource['Port'])
             dataSource['DisplayData'][0,:] = time.time()
@@ -269,7 +269,7 @@ if __name__ == "__main__":
         terrain = datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S")
 
     for dataSource in sources:
-        dataSource['Path'] = os.path.join('IMU Data', '{}{}{}.csv'.format(dataSource['Device'],dataSource['Placement'], terrain))
+        dataSource['Path'] = os.path.join('IMU Data', '{}_{}_{}.csv'.format(dataSource['Placement'], terrain, dataSource['Device']))
 
     instUIWrapper = ClUIWrapper(sources)
     instUIWrapper.fnStart()

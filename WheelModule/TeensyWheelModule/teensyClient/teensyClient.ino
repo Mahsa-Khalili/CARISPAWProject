@@ -88,7 +88,7 @@ void setup() {
 
     if(SelfTest[0] < 1.0f && SelfTest[1] < 1.0f && SelfTest[2] < 1.0f && SelfTest[3] < 1.0f && SelfTest[4] < 1.0f && SelfTest[5] < 1.0f) {
     Serial.println("Pass Selftest!");  
-      
+
     mpu.calibrateMPU6050(gyroBias, accelBias); // Calibrate gyro and accelerometers, load biases in bias registers  
 
     Serial.println("MPU6050 bias");
@@ -134,9 +134,9 @@ void loop() {
       aRes=mpu.getAres();
       
       // Now we'll calculate the accleration value into actual g's
-      ax = (float)accelCount[0]*aRes ;//- accelBias[0];  // get actual g value, this depends on scale being set
-      ay = (float)accelCount[1]*aRes ;//- accelBias[1];   
-      az = (float)accelCount[2]*aRes ;//- accelBias[2];  
+      ax = (float)accelCount[0]*aRes - accelBias[0];  // get actual g value, this depends on scale being set
+      ay = (float)accelCount[1]*aRes - accelBias[1];   
+      az = (float)accelCount[2]*aRes - accelBias[2];  
      
       mpu.readGyroData(gyroCount);  // Read the x/y/z adc values
       gRes=mpu.getGres();

@@ -102,7 +102,7 @@ class ClFrameDataParsing:
         freqCount = 0
         status = 'Active.' # Set marker to active
 
-        if self.protocol == 'TCP' or "BT":
+        if self.protocol == ('TCP' or 'BT'):
             self.FrameUnit.fnCOBSIntialClear() # Wait until message received starts at the correct location
 
         for i in range(500):
@@ -309,7 +309,7 @@ class ClWirelessServer:
         Return:     Status of message.
         """
 
-        if self.protocol == 'TCP' or 'BT':
+        if self.protocol == ('TCP' or 'BT'):
             data = []  # List containing characters of byte string
             c = self.socket.recv(1)  # Receive 1 byte of information
 
