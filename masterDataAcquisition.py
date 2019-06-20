@@ -11,8 +11,6 @@ Purpose:        This Python code utilizes various custom data collection librari
 
 import os
 import datetime
-import threading
-import time
 import sys
 
 import numpy as np
@@ -20,13 +18,12 @@ import pyqtgraph as pg
 
 from pyqtgraph.Qt import QtGui
 from PyQt5 import QtCore
+from multiprocessing import Process, Queue
+from scipy.signal import butter, lfilter
 
 # DEFINITIONS
 
 dir_path = os.path.dirname(os.path.realpath(__file__))  # Current file directory
-
-PI_HOST = ''           # Accept all connections from Pi
-PHONE_HOST = ''        # Accept all connections from Phone
 
 # CUSTOM LIBRARIES
 
@@ -43,23 +40,29 @@ from PhoneDAQLib import ClPhoneDataParsing
 # DICTIONARIES
 
 # Python dictionaries storing name of data source, bluetooth address, data storage path, and the recorded data
-Left = {'Name': 'Left', 'Address': '98:D3:51:FD:AD:F5', 'Placement': 'Left', 'Device': 'Wheel',
+Left = {'Name': 'Left', 'Address': '98:D3:51:FD:AD:F5', 'Placement': 'Left', 'Device': 'Module',
         'AccPath': os.path.join('IMU Data', '{} leftAcc.csv'.format(
             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
         'GyroPath': os.path.join('IMU Data', '{} leftGyro.csv'.format(
             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
         'Path': '',
-        'DisplayData': np.zeros((7, 1000))}
+        'DisplayData': np.zeros((7, 1000)),
+        'Queue': Queue(),
+        'RunMarker': Queue()
+        }
 
-Right = {'Name': 'Right', 'Address': '98:D3:81:FD:48:C9', 'Placement': 'Right', 'Device': 'Wheel',
+Right = {'Name': 'Right', 'Address': '98:D3:81:FD:48:C9', 'Placement': 'Right', 'Device': 'Module',
          'AccPath': os.path.join('IMU Data', '{} rightAcc.csv'.format(
              datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
          'GyroPath': os.path.join('IMU Data', '{} rightGyro.csv'.format(
              datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
          'Path': '',
-         'DisplayData': np.zeros((7, 1000))}
+         'DisplayData': np.zeros((7, 1000)),
+         'Queue': Queue(),
+         'RunMarker': Queue()
+         }
 
-RaspberryPi = {'Name': 'Frame', 'Address': 'B8:27:EB:A3:ED:6F', 'Port': 65432, 'Placement': 'Middle', 'Device': 'Frame',
+RaspberryPi = {'Name': 'Frame', 'Address': 'B8:27:EB:A3:ED:6F', 'Host': '', 'Port': 65432, 'Placement': 'Middle', 'Device': 'Module',
                'AccPath6050': os.path.join('IMU Data', '{} Frame6050Acc.csv'.format(
                    datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
                'GyroPath6050': os.path.join('IMU Data', '{} Frame6050Gyro.csv'.format(
@@ -69,7 +72,10 @@ RaspberryPi = {'Name': 'Frame', 'Address': 'B8:27:EB:A3:ED:6F', 'Port': 65432, '
                'GyroPath9250': os.path.join('IMU Data', '{} Frame9250Gyro.csv'.format(
                    datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
                 'Path': '',
-               'DisplayData': np.zeros((13, 1000))} # 9250 then 6050
+               'DisplayData': np.zeros((13, 1000)), # 9250 then 6050
+               'Queue': Queue(),
+               'RunMarker': Queue()
+               }
 
 LeftPhone = {'Name': 'Left Phone', 'Port': 5555, 'Placement': 'Left', 'Device': 'Phone',
             'AccPath': os.path.join('IMU Data', '{} LeftphoneAcc.csv'.format(
@@ -77,7 +83,10 @@ LeftPhone = {'Name': 'Left Phone', 'Port': 5555, 'Placement': 'Left', 'Device': 
             'GyroPath': os.path.join('IMU Data', '{} LeftphoneGyro.csv'.format(
                 datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
             'Path': '',
-            'DisplayData': np.zeros((7, 1000))}
+            'DisplayData': np.zeros((10, 1000)),
+            'Queue': Queue(),
+            'RunMarker': Queue()
+            }
 
 RightPhone = {'Name': 'Right Phone', 'Port': 6666, 'Placement': 'Right', 'Device': 'Phone',
               'AccPath': os.path.join('IMU Data', '{} RightPhoneAcc.csv'.format(
@@ -85,7 +94,10 @@ RightPhone = {'Name': 'Right Phone', 'Port': 6666, 'Placement': 'Right', 'Device
               'GyroPath': os.path.join('IMU Data', '{} RightPhoneGyro.csv'.format(
                   datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
               'Path': '',
-              'DisplayData': np.zeros((7, 1000))}
+              'DisplayData': np.zeros((10, 1000)),
+              'Queue': Queue(),
+              'RunMarker': Queue()
+              }
 
 FramePhone = {'Name': 'Frame Phone', 'Port': 7777,'Placement': 'Middle', 'Device': 'Phone',
               'AccPath': os.path.join('IMU Data', '{} RightPhoneAcc.csv'.format(
@@ -93,11 +105,16 @@ FramePhone = {'Name': 'Frame Phone', 'Port': 7777,'Placement': 'Middle', 'Device
               'GyroPath': os.path.join('IMU Data', '{} RightPhoneGyro.csv'.format(
                   datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
                'Path': '',
-              'DisplayData': np.zeros((7, 1000))}
+              'DisplayData': np.zeros((10, 1000)),
+              'Queue': Queue(),
+              'RunMarker': Queue()
+              }
 
 # Dictionary associating measurement descriptions to array space
 IMUDataDict = {'X Acceleration (m/s^2)': 1, 'Y Acceleration (m/s^2)': 2, 'Z Acceleration (m/s^2)': 3,
-               'X Angular Velocity (rad/s)': 4, 'Y Angular Velocity (rad/s)': 5, 'Z Angular Velocity (rad/s)': 6}
+               'X Angular Velocity (rad/s)': 4, 'Y Angular Velocity (rad/s)': 5, 'Z Angular Velocity (rad/s)': 6,
+               'heading (deg) C': 7, 'pitch (deg) C': 8, 'roll (deg) C': 9,
+               'heading (deg)': 10, 'pitch (deg)': 11, 'roll (deg)': 12}
 
 # Default Tableau color set for plotting
 PenColors = [(31, 119, 180), (255, 127, 14), (44, 160, 44), (214, 39, 40), (148, 103, 189), (140, 66, 75),
@@ -128,7 +145,6 @@ class ClUIWrapper():
                 self.instDAQLoop[dataSource['Name']] = ClFrameDataParsing(dataSource, protocol = 'TCP')
             if dataSource['Name'] in ['Left Phone', 'Right Phone', 'Frame Phone']:
                 self.instDAQLoop[dataSource['Name']] = ClPhoneDataParsing(dataSource, dataSource['Port'])
-            dataSource['DisplayData'][0,:] = time.time()
 
         self.app = QtGui.QApplication([])  # Initialize QT GUI, must only be called once
 
@@ -140,21 +156,22 @@ class ClUIWrapper():
                     Runs QT update display.
                     Dumps data in csv file when complete.
         Passed:     None
-        TODO:       Look into switching from threading to multiprocessing.
         """
-        threads = {}    # Initialize thread dictionary
 
-        # Creates and starts each module in a separate thread
+        processes = {}
+
+        # Creates and starts each module in a separate process
         for dataSource in self.sources:
-            threads[dataSource['Name']] = threading.Thread(target=self.instDAQLoop[dataSource['Name']].fnRun)
-            threads[dataSource['Name']].start()
+            processes[dataSource['Name']] = Process(target=self.instDAQLoop[dataSource['Name']].fnRun)
+            processes[dataSource['Name']].start()
 
         self.app.exec_()  # Executes QT display update code until window is closed, necessary for code to run
 
-        # Stores data in IMU Data folder, IMU data mimics Androsensor csv file
+        # Send end signal to process and wait for processes to join
         for dataSource in self.sources:
-            self.instDAQLoop[dataSource['Name']].fnSaveData(dataSource)
-
+            dataSource['RunMarker'].put(False)
+        for dataSource in self.sources:
+            processes[dataSource['Name']].join()
 
 class ClDisplayDataQT:
     """
@@ -175,8 +192,13 @@ class ClDisplayDataQT:
         self.plot = {} # Create dictionary for subplots
         self.plotData = {} # Create dictionary for subplot data
 
-        for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Acceleration (m/s^2)']:
-        # for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Angular Velocity (rad/s)']:
+        # Set which parameters you want to plot, 3 is a good number for the window size
+        # self.graphSet = ['heading (deg)', 'pitch (deg)', 'roll (deg)']
+        # self.graphSet = ['heading (deg) C', 'pitch (deg) C', 'roll (deg) C']
+        # self.graphSet = ['X Angular Velocity (rad/s)', 'Y Angular Velocity (rad/s)', 'Z Angular Velocity (rad/s)']
+        self.graphSet = ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Acceleration (m/s^2)']
+        # Create plots
+        for item in self.graphSet:
             self.plot[item] = self.win.addPlot(title="{}".format(item), clipToView=True)
 
         # Cycle through each data source and set-up plotting information
@@ -189,16 +211,18 @@ class ClDisplayDataQT:
             self.plot[dataName] = {}
 
             # Initialize each source of data with specific Tableau color set
-            for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Acceleration (m/s^2)']:
-            # for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Angular Velocity (rad/s)']:
+            for item in self.graphSet:
                 self.plotData[dataName][item] = self.plot[item].plot(pen=PenColors[i])
+                # self.plotData[dataName][item + ' C'] = self.plot[item].plot(pen=PenColors[i + 1])
 
             # Create new row for each source
             self.win.nextRow()
 
-        # Set update period for display, lowering setInterval requires more processing and leads to more issues
+
+
+        # Set update period for display, lowering setInterval requires more processing and may lead to more issues
         self.timer = QtCore.QTimer()
-        self.timer.setInterval(200) # in milliseconds
+        self.timer.setInterval(100) # in milliseconds
         self.timer.start()
         self.timer.timeout.connect(self.fnUpdate) # Sets timer to trigger fnUpdate
 
@@ -209,12 +233,24 @@ class ClDisplayDataQT:
         Passed:     None
         """
 
-        # Cycles through sources and update plots
+        # Cycles through source queues and update plots
+        # TODO: Check efficiency of roll and if indexing would be more efficient
         for dataSource in self.sources:
-            for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Acceleration (m/s^2)']:
-            # for item in ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Angular Velocity (rad/s)']:
-                self.plotData[dataSource['Name']][item].setData(dataSource['DisplayData'][0, :],
-                                                                dataSource['DisplayData'][IMUDataDict[item], :])
+            qSize = dataSource['Queue'].qsize()
+            for i in range(qSize):
+                buffer = dataSource['Queue'].get()
+                dataSource['DisplayData'][:, :] = np.roll(dataSource['DisplayData'], -1)
+                dataSource['DisplayData'][:, -1] = buffer
+            # if (len(dataSource['DisplayData'])) > 7:
+            #     dataSource['DisplayData'][7, -qSize:0] = butter_lowpass_filter(dataSource['DisplayData'][7, -qSize:0], 0.5, 200)
+            #     dataSource['DisplayData'][8, -qSize:0] = butter_lowpass_filter(dataSource['DisplayData'][8, -qSize:0], 0.5, 200)
+            #     dataSource['DisplayData'][9, -qSize:0] = butter_lowpass_filter(dataSource['DisplayData'][9, -qSize:0], 0.5, 200)
+
+            for item in self.graphSet:
+                self.plotData[dataSource['Name']][item].setData(dataSource['DisplayData'][0],
+                                                                dataSource['DisplayData'][IMUDataDict[item]])
+                # self.plotData[dataSource['Name']][item + ' C'].setData(dataSource['DisplayData'][0],
+                #                                                 dataSource['DisplayData'][IMUDataDict[item + ' C']])
 
 
 if __name__ == "__main__":
@@ -222,6 +258,7 @@ if __name__ == "__main__":
     status = 'Active'
     sources = []
 
+    # Prompts user for inputs
     print('Please input the letter corresponding to which sources you would like to include: ')
     print('l - Left Wheel Module')
     print('r - Right Wheel Module')
@@ -229,7 +266,7 @@ if __name__ == "__main__":
     print('L -  Left Phone')
     print('M -  Middle Phone')
     print('R -  Right Phone')
-    print('None - End input or enter defaults')
+    print('None / Wrong - End input or enter defaults')
 
     while status == 'Active':
         source = input('Input: ')
@@ -260,16 +297,18 @@ if __name__ == "__main__":
             status = 'Inactive'
             print('Sources: {}'.format([source['Name'] for source in sources]))
 
-    # sources = [RaspberryPi]
-
     # Create custom paths for different terrain tests
     terrain = input('Input terrain type: ')
 
     if not terrain:
         terrain = datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S")
 
+    print('Terrain: {}'.format(terrain))
+
+    # Stores terrain path name for data storage
     for dataSource in sources:
         dataSource['Path'] = os.path.join('IMU Data', '{}_{}_{}.csv'.format(dataSource['Placement'], terrain, dataSource['Device']))
 
+    # Begin data collection
     instUIWrapper = ClUIWrapper(sources)
     instUIWrapper.fnStart()

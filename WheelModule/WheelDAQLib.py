@@ -18,14 +18,11 @@ import datetime
 import numpy as np
 import pandas as pd
 import bluetooth
-import pyqtgraph as pg
 from cobs import cobs
 from libraries.imumsg import imumsg_pb2 as imuMsg
-from pyqtgraph.Qt import QtGui
-from PyQt5 import QtCore
-import threading
 import math
 import time
+from multiprocessing import Queue
 
 
 # DEFINITIONS
@@ -39,7 +36,10 @@ Left = {'Name': 'Left', 'Address': '98:D3:51:FD:AD:F5', 'Placement': 'Left', 'De
         'GyroPath': os.path.join('IMU Data', '{} leftGyro.csv'.format(
             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
         'Path': '',
-        'DisplayData': np.zeros((7, 1000))}
+        'DisplayData': np.zeros((7, 1000)),
+        'Queue': Queue(),
+        'RunMarker': Queue()
+        }
 
 Right = {'Name': 'Right', 'Address': '98:D3:81:FD:48:C9', 'Placement': 'Right', 'Device': 'Wheel',
          'AccPath': os.path.join('IMU Data', '{} rightAcc.csv'.format(
@@ -47,7 +47,10 @@ Right = {'Name': 'Right', 'Address': '98:D3:81:FD:48:C9', 'Placement': 'Right', 
          'GyroPath': os.path.join('IMU Data', '{} rightGyro.csv'.format(
              datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
          'Path': '',
-         'DisplayData': np.zeros((7, 1000))}
+         'DisplayData': np.zeros((7, 1000)),
+         'Queue': Queue(),
+         'RunMarker': Queue()
+         }
 
 # Dictionary associating measurement descriptions to array space
 IMUDataDict = {'X Acceleration (m/s^2)': 1, 'Y Acceleration (m/s^2)': 2, 'Z Acceleration (m/s^2)': 3,
@@ -68,11 +71,13 @@ class ClWheelDataParsing:
         Passed:     Source information containing bluetooth address data and display data shared variable.
         """
 
-        self.runStatus = True  # Set run status to determine when to terminate loop
+        self.runStatus = dataSource['RunMarker']  # Queue to check when terminate signal is sent from main program
 
-        self.displayData = dataSource['DisplayData'] # Make shared display data variable accessible
+        self.Queue = dataSource['Queue'] # Queue for data transfer to main program
 
-        self.IMU = ClBluetoothConnect(dataSource['Address']) # Creates bluetooth connection instance with wheel module
+        self.address = dataSource['Address'] # BT Address
+
+        self.path = dataSource['Path'] # Save path name
 
         self.refTime = 0
         self.timeOffset = 0
@@ -94,13 +99,15 @@ class ClWheelDataParsing:
         Passed:     None.
         """
 
+        self.IMU = ClBluetoothConnect(self.address)  # Creates bluetooth connection instance with wheel module
+
         freqCount = 0  # Frequency counter
 
         status = 'Active.' # Set marker to active
 
         self.IMU.fnCOBSIntialClear() # Wait until message received starts at the correct location
 
-        # Cycle through data retrieval to clear out message buffers
+        # Cycle through data retrieval to clear out buffered messages
         for i in range(1000):
             if status != 'Disconnected.':
                 status = self.IMU.fnRetieveIMUMessage()
@@ -111,14 +118,16 @@ class ClWheelDataParsing:
             status = self.IMU.fnRetieveIMUMessage()
             self.fnReceiveData(self.IMU.cobsMessage, 'init')
 
-        # Cycle through data retrieval until bluetooth disconnects
-        while status != 'Disconnected.' and self.runStatus:
+        # Cycle through data retrieval until bluetooth disconnects or terminate signal received
+        while status != 'Disconnected.' and self.runStatus.empty():
             status = self.IMU.fnRetieveIMUMessage()
             self.fnReceiveData(self.IMU.cobsMessage)
             freqCount += 1
             if freqCount >= 500:
                 freqCount = 0
                 print('Wheel Frequency: {} Hz'.format(500/(self.timeReceived[-1] - self.timeReceived[-501])))
+
+        self.fnSaveData()
 
         # Close socket connection
         self.IMU.sock.close()
@@ -145,14 +154,15 @@ class ClWheelDataParsing:
             imuMsgBT = imuMsg.IMUInfo()
             imuMsgBT.ParseFromString(data)
 
-            # Initialize time offset and reference time for time snychronization
+            # Initialize time offset and reference time for time synchronization
             if state == 'init':
                 self.refTime = time.time()
                 self.timeOffset = imuMsgBT.time_stamp / 1000000
                 self.timeReceived.append(time.time())
+                # Append data to display data and class variables
                 self.fnStoreData(imuMsgBT)
 
-            # Record data into approrpiate class lists and display data array
+            # Record data into appropriate class lists and display data array
             elif state == 'stream':
                 self.timeReceived.append(time.time())
                 self.fnStoreData(imuMsgBT)
@@ -164,17 +174,16 @@ class ClWheelDataParsing:
     def fnStoreData(self, wheelDataPB):
         """
         Purpose:    Store data into display data and class variables.
-        Passed:     Teensy time values, (x, y, z) acceleration in Gs, (x, y, z) angular velocity in rad/s.
-        TODO:       Look at efficiency of roll and if using indexing would be faster.
+        Passed:     wheel data format with Teensy time values, (x, y, z) acceleration in Gs,
+                    (x, y, z) angular velocity in deg/s.
         """
 
         # Sets adjusted timestamp
         timeStamp = self.refTime + wheelDataPB.time_stamp / 1000000 - self.timeOffset
 
-        # Sets display data
-        self.displayData[:,:] = np.roll(self.displayData, -1)
-        self.displayData[0:7, -1] = [timeStamp, wheelDataPB.acc_x * 9.8065, wheelDataPB.acc_y * 9.8065, wheelDataPB.acc_z * 9.8065,
-                                     wheelDataPB.angular_x * math.pi / 180, wheelDataPB.angular_y * math.pi / 180, wheelDataPB.angular_z * math.pi / 180]
+        # Sends received data to queue
+        self.Queue.put([timeStamp, wheelDataPB.acc_x * 9.8065, wheelDataPB.acc_y * 9.8065, wheelDataPB.acc_z * 9.8065,
+                                     wheelDataPB.angular_x * math.pi / 180, wheelDataPB.angular_y * math.pi / 180, wheelDataPB.angular_z * math.pi / 180])
 
         # Appends class lists
         self.timeStamp.append(timeStamp)
@@ -185,15 +194,11 @@ class ClWheelDataParsing:
         self.yGyro.append(wheelDataPB.angular_y * math.pi / 180)
         self.zGyro.append(wheelDataPB.angular_z * math.pi / 180)
 
-    def fnSaveData(self, dataSource):
+    def fnSaveData(self):
         """
-        Purpose:    Tells code to stop recording data.
-                    Records data into csv file.
+        Purpose:    Records data into csv file.
         Passed:     dataSource containing file save path.
         """
-
-        self.runStatus = False
-        time.sleep(2)
 
         # Create time string list based on the Androsensor format
         timeString = [datetime.datetime.fromtimestamp(utcTime).strftime('%Y-%m-%d %H:%M:%S:%f')[:-3] for utcTime in self.timeStamp]
@@ -208,7 +213,7 @@ class ClWheelDataParsing:
                      'Time since start in ms ': np.array(self.timeStamp) - self.timeStamp[0],
                      'YYYY-MO-DD HH-MI-SS_SSS': timeString})
 
-        IMUData.to_csv(dataSource['Path'], index = False)
+        IMUData.to_csv(self.path, index = False)
 
 
 class ClBluetoothConnect:

@@ -14,6 +14,7 @@ import datetime
 import time
 import numpy as np
 import pandas as pd
+from multiprocessing import Queue
 
 # DEFINITIONS
 
@@ -29,7 +30,10 @@ LeftPhone = {'Name': 'Left Phone', 'Port': 5555, 'Placement': 'Left', 'Device': 
             'GyroPath': os.path.join('IMU Data', '{} LeftphoneGyro.csv'.format(
                 datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
             'Path': '',
-            'DisplayData': np.zeros((7, 1000))}
+            'DisplayData': np.zeros((7, 1000)),
+            'Queue': Queue(),
+            'RunMarker': Queue()
+            }
 
 RightPhone = {'Name': 'Right Phone', 'Port': 6666, 'Placement': 'Right', 'Device': 'Phone',
               'AccPath': os.path.join('IMU Data', '{} RightPhoneAcc.csv'.format(
@@ -37,7 +41,10 @@ RightPhone = {'Name': 'Right Phone', 'Port': 6666, 'Placement': 'Right', 'Device
               'GyroPath': os.path.join('IMU Data', '{} RightPhoneGyro.csv'.format(
                   datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
               'Path': '',
-              'DisplayData': np.zeros((7, 1000))}
+              'DisplayData': np.zeros((7, 1000)),
+              'Queue': Queue(),
+              'RunMarker': Queue()
+              }
 
 FramePhone = {'Name': 'Frame Phone', 'Port': 7777,'Placement': 'Middle', 'Device': 'Phone',
               'AccPath': os.path.join('IMU Data', '{} RightPhoneAcc.csv'.format(
@@ -45,7 +52,10 @@ FramePhone = {'Name': 'Frame Phone', 'Port': 7777,'Placement': 'Middle', 'Device
               'GyroPath': os.path.join('IMU Data', '{} RightPhoneGyro.csv'.format(
                   datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
                'Path': '',
-              'DisplayData': np.zeros((7, 1000))}
+              'DisplayData': np.zeros((7, 1000)),
+              'Queue': Queue(),
+              'RunMarker': Queue()
+              }
 
 
 # CLASSES
@@ -55,7 +65,7 @@ class ClPhoneDataParsing:
     Class for connecting to Phone IMU
     """
 
-    def __init__(self, source, commPort = PORT, protocol = 'UDP'):
+    def __init__(self, dataSource, commPort = PORT, protocol = 'UDP'):
         """
         Purpose:    Initialize socket connections and class variables / lists.
         Passed:     Source dictionary for data storage.
@@ -64,26 +74,14 @@ class ClPhoneDataParsing:
         """
 
         # Set self variables for displayData and protocol
-        self.displayData = source['DisplayData']
         self.protocol = protocol
+        self.commPort = commPort
 
-        # sets run status boolean to determine when to end data collection
-        self.runStatus = True
+        self.runStatus = dataSource['RunMarker']  # Queue to check when terminate signal is sent from main program
 
-        # Connect using TCP if specified
-        if protocol is 'TCP':
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.sock.bind((HOST, commPort))
-            self.sock.listen(1)
-            self.conn, self.addr = self.sock.accept()
-            self.conn.setblocking(1)
-            print('Connected by {}'.format(self.addr))
+        self.Queue = dataSource['Queue'] # Queue for data transfer to main program
 
-        # Connect using UDP, default
-        if protocol is 'UDP':
-            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            print('Initialized.')
-            self.sock.bind((HOST, commPort))
+        self.path = dataSource['Path'] # Save path name
 
         # Initialize class variables
         self.refTime = 0
@@ -98,6 +96,9 @@ class ClPhoneDataParsing:
         self.xGyro = []
         self.yGyro = []
         self.zGyro = []
+        self.heading = []
+        self.pitch = []
+        self.roll = []
 
     def fnClearInitial(self):
         """
@@ -118,7 +119,7 @@ class ClPhoneDataParsing:
         """
 
         # Runs through byte-by-byte to reform complete JSON package through TCP
-        if self.protocol is 'TCP':
+        if self.protocol == 'TCP':
             dataBuffer = []  # List of byte characters
 
             startMarker = self.conn.recv(1)  # Receives 1 byte
@@ -131,7 +132,7 @@ class ClPhoneDataParsing:
             return b''.join(dataBuffer) # Return joined byte string to get JSON serialized data
 
         # Collects full message from UDP and returns
-        elif self.protocol is 'UDP':
+        elif self.protocol == 'UDP':
             data, addr = self.sock.recvfrom(128)
             return data
 
@@ -147,7 +148,7 @@ class ClPhoneDataParsing:
         """
 
         # Reads byte data and saves to appropriate locations (JSON TCP)
-        if self.protocol is 'TCP':
+        if self.protocol == 'TCP':
             dataParsed = json.loads(byteData.decode("utf-8")) # Decode JSON message
 
             # Sets timing adjustment variables
@@ -157,11 +158,16 @@ class ClPhoneDataParsing:
 
             # Collects data and stores into class lists, display data array
             elif state == 'stream':
+
+                pitchAngle = dataParsed['CWGD Orientation Sensor'][0] + 180
+                if pitchAngle > 180:
+                    pitchAngle -= 360
+
                 self.timeReceived.append(time.time())
-                self.displayData[:, :] = np.roll(self.displayData, -1)
-                self.displayData[0:7, -1] = [self.refTime + dataParsed['Timestamp']/1000 + self.timeOffset, dataParsed['accelerometer'][0], dataParsed['accelerometer'][1], dataParsed['accelerometer'][2],
+                self.Queue.put([self.refTime + dataParsed['Timestamp']/1000 - self.timeOffset, dataParsed['accelerometer'][0], dataParsed['accelerometer'][1], dataParsed['accelerometer'][2],
                                              dataParsed['gyroscope-lsm6ds3'][0], dataParsed['gyroscope-lsm6ds3'],
-                                             dataParsed['gyroscope-lsm6ds3'][2]]
+                                             dataParsed['gyroscope-lsm6ds3'][2], pitchAngle, dataParsed['CWGD Orientation Sensor'][1], dataParsed['CWGD Orientation Sensor'][2]])
+
                 self.timeStamp.append(self.refTime + dataParsed['Timestamp']/1000 - self.timeOffset)
                 self.xData.append(dataParsed['Accelerometer Sensor'][0])
                 self.yData.append(dataParsed['Accelerometer Sensor'][1])
@@ -169,11 +175,19 @@ class ClPhoneDataParsing:
                 self.xGyro.append(dataParsed['Gyroscope Sensor'][0])
                 self.yGyro.append(dataParsed['Gyroscope Sensor'][1])
                 self.zGyro.append(dataParsed['Gyroscope Sensor'][2])
+                self.pitch.append(pitchAngle)
+                self.roll.append(dataParsed['CWGD Orientation Sensor'][1])
+                self.heading.append(dataParsed['CWGD Orientation Sensor'][2])
 
         # Reads byte data and saves to appropriate locations (UDP)
-        elif self.protocol is 'UDP':
+        elif self.protocol == 'UDP':
+
             dataParsed = byteData[:-2].split(sep=b',')  # Parses byte string into list, ignores \n at end of message
             dataParsed = [float(data) for data in dataParsed] # Converts values to float
+
+            pitchAngle = dataParsed[8] + 180
+            if pitchAngle > 180:
+                pitchAngle -= 360
 
             # Sets timing adjustment variables
             if state == 'init':
@@ -182,10 +196,10 @@ class ClPhoneDataParsing:
 
             # Collects data and stores into class lists, display data array
             elif state == 'stream':
+
                 self.timeReceived.append(time.time())
-                self.displayData[:, :] = np.roll(self.displayData, -1)
-                self.displayData[0:7, -1] = [self.refTime + dataParsed[0]/1000 - self.timeOffset, dataParsed[1], dataParsed[2],
-                                             dataParsed[3], dataParsed[4], dataParsed[5], dataParsed[6]]
+                self.Queue.put([self.refTime + dataParsed[0]/1000 - self.timeOffset, -dataParsed[2], -dataParsed[1],
+                                             -dataParsed[3], -dataParsed[4], -dataParsed[5], -dataParsed[6], dataParsed[7], -pitchAngle, dataParsed[9]])
                 self.timeStamp.append(self.refTime + dataParsed[0]/1000 + self.timeOffset)
                 self.xData.append(dataParsed[1])
                 self.yData.append(dataParsed[2])
@@ -193,16 +207,34 @@ class ClPhoneDataParsing:
                 self.xGyro.append(dataParsed[4])
                 self.yGyro.append(dataParsed[5])
                 self.zGyro.append(dataParsed[6])
+                self.pitch.append(pitchAngle)
+                self.roll.append(dataParsed[9])
+                self.heading.append(dataParsed[7])
 
     def fnRun(self):
         """
         Purpose:    Method that continuous runs and collects data.
         """
 
+        # Connect using TCP if specified
+        if self.protocol == 'TCP':
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.sock.bind((HOST, self.commPort))
+            self.sock.listen(1)
+            self.conn, self.addr = self.sock.accept()
+            self.conn.setblocking(1)
+            print('Connected by {}'.format(self.addr))
+
+        # Connect using UDP, default
+        if self.protocol == 'UDP':
+            self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            print('Initialized.')
+            self.sock.bind((HOST, self.commPort))
+
         freqCount = 0  # Frequency counter
 
         # Wait until start byte to collect data
-        if self.protocol is 'TCP':
+        if self.protocol == 'TCP':
             self.fnClearInitial()
 
         # Allow for buffer messages to clear
@@ -213,18 +245,21 @@ class ClPhoneDataParsing:
         # Initialize time offsets
         dataReceived = self.fnReceivePhoneData()
         self.fnParsePhoneData(dataReceived, state = 'init')
+        dataReceived = self.fnReceivePhoneData()
+        self.fnParsePhoneData(dataReceived)
 
         # Run until connection ends
-        while self.RunStatus:
+        while self.runStatus.empty():
             dataReceived = self.fnReceivePhoneData()
             self.fnParsePhoneData(dataReceived)
             freqCount += 1
             if freqCount >= 500:
                 freqCount = 0
-                print('Wheel Frequency: {} Hz'.format(500/(self.timeStamp[-1] - self.timeStamp[-501])))
+                print('Phone Frequency: {} Hz'.format(500/(self.timeStamp[-1] - self.timeStamp[-501])))
 
+        self.fnSaveData()
 
-    def fnSaveData(self, dataSource):
+    def fnSaveData(self):
         """
         Purpose:    Method for saving data to CSV file.
         Passed:     dataSource dictionary that contains save path.
@@ -238,10 +273,13 @@ class ClPhoneDataParsing:
                      'GYROSCOPE X (rad/s)': np.array(self.xGyro),
                      'GYROSCOPE Y (rad/s)': np.array(self.yGyro),
                      'GYROSCOPE Z (rad/s)': np.array(self.zGyro),
+                     'Heading (deg)': np.array(self.heading),
+                     'Pitch (deg)': np.array(self.pitch),
+                     'Roll (deg)': np.array(self.roll),
                      'Time since start in ms ': np.array(self.timeStamp) - self.timeStamp[0],
                      'YYYY-MO-DD HH-MI-SS_SSS': timeString})
 
-        IMUData.to_csv(dataSource['Path'], index = False)
+        IMUData.to_csv(self.path, index = False)
 
 
 if __name__ == "__main__":

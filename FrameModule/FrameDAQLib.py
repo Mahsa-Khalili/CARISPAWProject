@@ -25,21 +25,18 @@ import pandas as pd
 import math
 import socket
 import bluetooth
-import pyqtgraph as pg
-from pyqtgraph.Qt import QtGui
-from PyQt5 import QtCore
-import threading
+from multiprocessing import Queue
 import frameUnitMsg_pb2 as frameUnitMsg
 from cobs import cobs
+from scipy.signal import butter, lfilter
 
 
 # DEFINITIONS
 
 dir_path = os.path.dirname(os.path.realpath(__file__))  # Current file directory
 
-HOST = ''           # Accept all connections
-
-RaspberryPi = {'Name': 'Frame', 'Address': 'B8:27:EB:A3:ED:6F', 'Port': 65432, 'Placement': 'Middle', 'Device': 'Frame',
+# Library containing all the relecant information for the Pi
+RaspberryPi = {'Name': 'Frame', 'Address': 'B8:27:EB:A3:ED:6F', 'Host': '', 'Port': 65432, 'Placement': 'Middle', 'Device': 'Frame',
                'AccPath6050': os.path.join('IMU Data', '{} Frame6050Acc.csv'.format(
                    datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
                'GyroPath6050': os.path.join('IMU Data', '{} Frame6050Gyro.csv'.format(
@@ -49,7 +46,10 @@ RaspberryPi = {'Name': 'Frame', 'Address': 'B8:27:EB:A3:ED:6F', 'Port': 65432, '
                'GyroPath9250': os.path.join('IMU Data', '{} Frame9250Gyro.csv'.format(
                    datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
                 'Path': '',
-               'DisplayData': np.zeros((13, 1000))} # 9250 then 6050
+               'DisplayData': np.zeros((13, 1000)), # 9250 then 6050
+               'Queue': Queue(),
+               'RunMarker': Queue()
+               }
 
 # CLASSES
 
@@ -60,11 +60,19 @@ class ClFrameDataParsing:
 
     def __init__(self, dataSource, commPort = 65432, protocol = 'UDP'):
         """
-        Purpose:
-        Passed:
+        Purpose:    Connect to frame module using UDP/TCP/BT and sends data to main program
+        Passed:     dataSource dicitionary with all relevant information
+                    Expected WiFi port to connect to
+                    Expected protocol for wireless connection
         """
 
-        self.runStatus = True
+        self.runStatus = dataSource['RunMarker']  # Queue to check when terminate signal is sent from main program
+
+        self.Queue = dataSource['Queue'] # Queue for data transfer to main program
+
+        self.address = dataSource['Address'] # BT Address
+
+        self.path = dataSource['Path'] # Save path name
 
         self.protocol = protocol
 
@@ -74,7 +82,7 @@ class ClFrameDataParsing:
 
         self.displayData = dataSource['DisplayData'] # Make shared display data variable accessible
 
-        self.FrameUnit = ClWirelessServer(dataSource, self.protocol) # Create TCP Server
+        self.FrameUnit = ClWirelessServer(self.address, dataSource['Host'], dataSource['Port'], self.protocol) # Create Server
 
         # Create class storage variables
         self.timeReceived = []
@@ -91,6 +99,17 @@ class ClFrameDataParsing:
         self.xGyro9250 = []
         self.yGyro9250 = []
         self.zGyro9250 = []
+        self.heading = []
+        self.pitch = []
+        self.roll = []
+
+        self.compHeading = []
+        self.compPitch = []
+        self.compRoll = []
+
+        self.valPitch = 0
+        self.valRoll = 0
+        self.valHeading = 0
 
     def fnRun(self):
         """
@@ -105,17 +124,21 @@ class ClFrameDataParsing:
         if self.protocol == ('TCP' or 'BT'):
             self.FrameUnit.fnCOBSIntialClear() # Wait until message received starts at the correct location
 
-        for i in range(500):
+        # Cycle through data retrieval to clear out buffered messages
+        for i in range(1000):
             if status != 'Disconnected.':
                 status = self.FrameUnit.fnRetievePiMessage()
                 self.fnReceiveData(self.FrameUnit.cobsMessage, state = 'wait')
 
+        # Initializes response for time synchronization
         if status != 'Disconnected.':
             status = self.FrameUnit.fnRetievePiMessage()
             self.fnReceiveData(self.FrameUnit.cobsMessage, state='init')
+            status = self.FrameUnit.fnRetievePiMessage()
+            self.fnReceiveData(self.FrameUnit.cobsMessage)
 
-        # Cycle through data retrieval until bluetooth disconnects
-        while status != 'Disconnected.' and self.runStatus:
+        # Cycle through data retrieval until client disconnects or terminate signal received
+        while status != 'Disconnected.' and self.runStatus.empty():
             status = self.FrameUnit.fnRetievePiMessage()
             self.fnReceiveData(self.FrameUnit.cobsMessage)
             freqCount += 1
@@ -123,24 +146,25 @@ class ClFrameDataParsing:
                 freqCount = 0
                 print('Frame Frequency: {} Hz'.format(500/(self.timeStamp[-1] - self.timeStamp[-501])))
 
+        self.fnSaveData()
+
         # Close socket connection
-        # TODO: Make socket terminate / escape from loop above when exiting display window.
         self.FrameUnit.fnShutDown()
 
     def fnReceiveData(self, msg, state = 'stream'):
         """
-        Purpose:    Unpack data coming from Teensy wheel module and calls fnStoreData to store data.
+        Purpose:    Unpack data coming from Pi frame module and calls fnStoreData to store data.
         Passed:     Cobs deciphered byte string message.
         """
 
         # Try to decipher message based on preset protobuf specifications
         try:
-
             # Pass msg to frameUnitMsg to parse into float values stored in imuMsg instance
             data = msg
             frameUnitMsgRcv = frameUnitMsg.frameUnit()
             frameUnitMsgRcv.ParseFromString(data)
 
+            # Initialize time offset and reference time for time synchronization
             if state == 'init':
                 self.refTime = time.time()
                 self.timeOffset = frameUnitMsgRcv.time_stamp
@@ -148,6 +172,7 @@ class ClFrameDataParsing:
                 # Append data to display data and class variables
                 self.fnStoreData(frameUnitMsgRcv)
 
+            # Record data into appropriate class lists and display data array
             elif state == 'stream':
                 self.timeReceived.append(time.time())
                 # Append data to display data and class variables
@@ -160,24 +185,22 @@ class ClFrameDataParsing:
     def fnStoreData(self, frameUnitPB):
         """
         Purpose:    Store data into display data and class variables.
-        Passed:     Teensy time values, (x, y, z) acceleration in Gs, (x, y, z) angular velocity in rad/s.
-        TODO:       Look at efficiency of roll and if using indexing would be faster.
+        Passed:     Frame data format containing Pi timestamps, acceleration in m/s^2,
+                    (x, y, z) angular velocity in deg/s.
         """
-        self.displayData[:,:] = np.roll(self.displayData, -1)
-        self.displayData[0:7, -1] = [self.refTime + frameUnitPB.time_stamp - self.timeOffset, frameUnitPB.acc_x_9250, frameUnitPB.acc_y_9250, frameUnitPB.acc_z_9250,
-                                         frameUnitPB.angular_x_9250 * math.pi / 180, frameUnitPB.angular_y_9250 * math.pi / 180,
-                                         frameUnitPB.angular_z_9250 * math.pi / 180]
-        self.displayData[7:13, -1] = [frameUnitPB.acc_x_6050, frameUnitPB.acc_y_6050, frameUnitPB.acc_z_6050,
-                                         frameUnitPB.angular_x_6050 * math.pi / 180, frameUnitPB.angular_y_6050 * math.pi / 180,
-                                         frameUnitPB.angular_z_6050 * math.pi / 180]
 
+        # Appends class lists
         self.timeStamp.append(self.refTime + frameUnitPB.time_stamp - self.timeOffset)
         self.xData6050.append(frameUnitPB.acc_x_6050)
         self.yData6050.append(frameUnitPB.acc_y_6050)
         self.zData6050.append(frameUnitPB.acc_z_6050)
-        self.xGyro6050.append(frameUnitPB.angular_x_6050 * math.pi / 180)
-        self.yGyro6050.append(frameUnitPB.angular_y_6050 * math.pi / 180)
-        self.zGyro6050.append(frameUnitPB.angular_z_6050 * math.pi / 180)
+        # self.xGyro6050.append(frameUnitPB.angular_x_6050 * math.pi / 180)
+        # self.yGyro6050.append(frameUnitPB.angular_y_6050 * math.pi / 180)
+        # self.zGyro6050.append(frameUnitPB.angular_z_6050 * math.pi / 180)
+
+        self.xGyro6050.append(frameUnitPB.angular_x_6050)
+        self.yGyro6050.append(frameUnitPB.angular_y_6050)
+        self.zGyro6050.append(frameUnitPB.angular_z_6050)
 
         self.xData9250.append(frameUnitPB.acc_x_9250)
         self.yData9250.append(frameUnitPB.acc_y_9250)
@@ -186,19 +209,65 @@ class ClFrameDataParsing:
         self.yGyro9250.append(frameUnitPB.angular_y_9250 * math.pi / 180)
         self.zGyro9250.append(frameUnitPB.angular_z_9250 * math.pi / 180)
 
-    def fnSaveData(self, dataSource):
+        self.fnGetAngles()
 
-        self.runStatus = False
-        time.sleep(2)
+        # Sends received data to queue
+        # self.Queue.put([self.refTime + frameUnitPB.time_stamp - self.timeOffset, frameUnitPB.acc_x_9250, frameUnitPB.acc_y_9250, frameUnitPB.acc_z_9250,
+        #                                  frameUnitPB.angular_x_9250 * math.pi / 180, frameUnitPB.angular_y_9250 * math.pi / 180,
+        #                                  frameUnitPB.angular_z_9250 * math.pi / 180, frameUnitPB.acc_x_6050, frameUnitPB.acc_y_6050, frameUnitPB.acc_z_6050,
+        #                                  frameUnitPB.angular_x_6050 * math.pi / 180, frameUnitPB.angular_y_6050 * math.pi / 180,
+        #                                  frameUnitPB.angular_z_6050 * math.pi / 180])
 
-        # AccData6050 = np.transpose([self.timeStamp, self.xData6050, self.yData6050, self.zData6050])
-        # GyroData6050 = np.transpose([self.timeStamp, self.xGyro6050, self.yGyro6050, self.zGyro6050])
-        # AccData9250 = np.transpose([self.timeStamp, self.xData9250, self.yData9250, self.zData9250])
-        # GyroData9250 = np.transpose([self.timeStamp, self.xGyro9250, self.yGyro9250, self.zGyro9250])
-        # np.savetxt(dataSource['AccPath6050'], AccData6050, delimiter=",")
-        # np.savetxt(dataSource['GyroPath6050'], GyroData6050, delimiter=",")
-        # np.savetxt(dataSource['AccPath9250'], AccData9250, delimiter=",")
-        # np.savetxt(dataSource['GyroPath9250'], GyroData9250, delimiter=",")
+        head = frameUnitPB.angular_x_6050
+        pitch = frameUnitPB.angular_y_6050
+        roll = frameUnitPB.angular_z_6050
+
+        # pitch =  math.atan2(self.xData9250[-1], self.zData9250[-1]) * 180 / math.pi
+        # roll = math.atan2(self.yData9250[-1], self.zData9250[-1]) * 180 / math.pi
+
+        self.Queue.put([self.refTime + frameUnitPB.time_stamp - self.timeOffset, frameUnitPB.acc_x_9250, frameUnitPB.acc_y_9250, frameUnitPB.acc_z_9250,
+                                         frameUnitPB.angular_x_9250 * math.pi / 180, frameUnitPB.angular_y_9250 * math.pi / 180,
+                                         frameUnitPB.angular_z_9250 * math.pi / 180, self.valHeading, self.valPitch, self.valRoll,
+                                         frameUnitPB.angular_x_6050, frameUnitPB.angular_y_6050, frameUnitPB.angular_z_6050])
+
+
+
+    def fnGetAngles(self):
+        """
+        Purpose:    Utilize complimentary filter to get angle of device
+        passed:     None.
+        """
+
+        alpha = 0.98
+
+        timeDiff = self.timeStamp[-1] - self.timeStamp[-2]
+
+        # Integrate the gyroscope data -> int(angularSpeed) = angle
+        self.valRoll += (self.xGyro9250[-1] * timeDiff) * 180 / math.pi # Angle around the X-axis
+        self.valPitch -= self.yGyro9250[-1] * timeDiff * 180 / math.pi    # Angle around the Y-axis
+
+        # Compensate for drift with accelerometer data if !bullshit
+        # Sensitivity = -2 to 2 G at 16Bit -> 2G = 32768 && 0.5G = 8192
+        forceMagnitudeApprox = abs(self.xData9250[-1]) + abs(self.yData9250[-1]) + abs(self.zData9250[-1])
+
+        # if (forceMagnitudeApprox > 8 and forceMagnitudeApprox < 11):
+        if (forceMagnitudeApprox > 4.905 and forceMagnitudeApprox < 19.62):
+            # Turning around the X axis results in a vector on the Y-axis
+            rollAcc = math.atan2(self.yData9250[-1], self.zData9250[-1])
+            self.valRoll = self.valRoll * alpha + rollAcc * (1 - alpha) * 180 / math.pi
+
+            # Turning around the Y axis results in a vector on the X-axis
+            pitchAcc = math.atan2(self.xData9250[-1], self.zData9250[-1])
+            self.valPitch = self.valPitch * alpha + pitchAcc * (1 - alpha) * 180 / math.pi
+
+        self.compPitch.append(self.valPitch)
+        self.compRoll.append(self.valRoll)
+
+    def fnSaveData(self):
+        """
+        Purpose:    Store data into specified path.
+        Passed:     None.
+        """
 
         timeString = [datetime.datetime.fromtimestamp(utcTime).strftime('%Y-%m-%d %H:%M:%S:%f')[:-3] for utcTime in self.timeStamp]
 
@@ -209,16 +278,20 @@ class ClFrameDataParsing:
                      'GYROSCOPE Y (rad/s)': np.array(self.yGyro9250),
                      'GYROSCOPE Z (rad/s)': np.array(self.zGyro9250),
                      'Time since start in ms ': np.array(self.timeStamp) - self.timeStamp[0],
-                     'YYYY-MO-DD HH-MI-SS_SSS': timeString})
+                     'YYYY-MO-DD HH-MI-SS_SSS': timeString,
+                     'MagX': self.xGyro6050,
+                     'MagY': self.yGyro6050,
+                     'MagZ': self.zGyro6050}
+                               )
 
-        IMUData.to_csv(dataSource['Path'], index = False)
+        IMUData.to_csv(self.path, index = False)
 
 class ClWirelessServer:
     """
     Class
     """
 
-    def __init__(self, dataSource, protocol):
+    def __init__(self, address, host, port, protocol):
         """
         Purpose:
         Passed:
@@ -231,7 +304,7 @@ class ClWirelessServer:
 
             print ("{}: Began connection".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
 
-            self.TCPSocket.bind((HOST, dataSource['Port']))
+            self.TCPSocket.bind((host, port))
             self.TCPSocket.listen(1)
             self.socket, self.addr = self.TCPSocket.accept()
 
@@ -241,15 +314,12 @@ class ClWirelessServer:
 
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
             print('Initialized.')
-            self.socket.bind((HOST, dataSource['Port']))
+            self.socket.bind((host, port))
 
         elif self.protocol =='BT':
             self.socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
             print('Initialized.')
-            self.socket.connect((dataSource['Address'], 3))
-            # self.sock.bind(('', 3))
-            # self.sock.listen(1)
-            # self.socket, self.clienttInfo = self.sock.accept()
+            self.socket.connect((address, port))
 
     def fnCOBSIntialClear(self):
         """
@@ -331,6 +401,7 @@ class ClWirelessServer:
             return 'Received.'
         except Exception as e:
             print("Failed to decode message due to {}".format(e))
+
 
 if __name__ == "__main__":
 
