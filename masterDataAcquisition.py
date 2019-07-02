@@ -46,7 +46,7 @@ Left = {'Name': 'Left', 'Address': '98:D3:51:FD:AD:F5', 'Placement': 'Left', 'De
         'GyroPath': os.path.join('IMU Data', '{} leftGyro.csv'.format(
             datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
         'Path': '',
-        'DisplayData': np.zeros((7, 1000)),
+        'DisplayData-IMU_6': np.zeros((7, 1000)),
         'Queue': Queue(),
         'RunMarker': Queue()
         }
@@ -57,7 +57,7 @@ Right = {'Name': 'Right', 'Address': '98:D3:81:FD:48:C9', 'Placement': 'Right', 
          'GyroPath': os.path.join('IMU Data', '{} rightGyro.csv'.format(
              datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
          'Path': '',
-         'DisplayData': np.zeros((7, 1000)),
+         'DisplayData-IMU_6': np.zeros((7, 1000)),
          'Queue': Queue(),
          'RunMarker': Queue()
          }
@@ -72,7 +72,9 @@ RaspberryPi = {'Name': 'Frame', 'Address': 'B8:27:EB:A3:ED:6F', 'Host': '', 'Por
                'GyroPath9250': os.path.join('IMU Data', '{} Frame9250Gyro.csv'.format(
                    datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
                 'Path': '',
-               'DisplayData': np.zeros((13, 1000)), # 9250 then 6050
+               'DisplayData-IMU_6': np.zeros((7, 1000)),
+               'DisplayData-IMU_9': np.zeros((10, 1000)),
+               'DisplayData-USS': np.zeros((2,250)),
                'Queue': Queue(),
                'RunMarker': Queue()
                }
@@ -83,7 +85,7 @@ LeftPhone = {'Name': 'Left Phone', 'Port': 5555, 'Placement': 'Left', 'Device': 
             'GyroPath': os.path.join('IMU Data', '{} LeftphoneGyro.csv'.format(
                 datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
             'Path': '',
-            'DisplayData': np.zeros((10, 1000)),
+            'DisplayData-IMU_6': np.zeros((10, 1000)),
             'Queue': Queue(),
             'RunMarker': Queue()
             }
@@ -94,7 +96,7 @@ RightPhone = {'Name': 'Right Phone', 'Port': 6666, 'Placement': 'Right', 'Device
               'GyroPath': os.path.join('IMU Data', '{} RightPhoneGyro.csv'.format(
                   datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
               'Path': '',
-              'DisplayData': np.zeros((10, 1000)),
+              'DisplayData-IMU_6': np.zeros((10, 1000)),
               'Queue': Queue(),
               'RunMarker': Queue()
               }
@@ -105,7 +107,7 @@ FramePhone = {'Name': 'Frame Phone', 'Port': 7777,'Placement': 'Middle', 'Device
               'GyroPath': os.path.join('IMU Data', '{} RightPhoneGyro.csv'.format(
                   datetime.datetime.now().strftime("%Y-%m-%d %H.%M.%S"))),
                'Path': '',
-              'DisplayData': np.zeros((10, 1000)),
+              'DisplayData-IMU_6': np.zeros((10, 1000)),
               'Queue': Queue(),
               'RunMarker': Queue()
               }
@@ -113,8 +115,8 @@ FramePhone = {'Name': 'Frame Phone', 'Port': 7777,'Placement': 'Middle', 'Device
 # Dictionary associating measurement descriptions to array space
 IMUDataDict = {'X Acceleration (m/s^2)': 1, 'Y Acceleration (m/s^2)': 2, 'Z Acceleration (m/s^2)': 3,
                'X Angular Velocity (rad/s)': 4, 'Y Angular Velocity (rad/s)': 5, 'Z Angular Velocity (rad/s)': 6,
-               'heading (deg) C': 7, 'pitch (deg) C': 8, 'roll (deg) C': 9,
-               'heading (deg)': 10, 'pitch (deg)': 11, 'roll (deg)': 12}
+               'X Magnetometer': 7, 'Y Magnetometer': 8, 'Z Magnetometer': 9,
+               'Heading (deg)': 10, 'Pitch (deg)': 11, 'Roll (deg)': 12, 'Proximity (mm)': 1}
 
 # Default Tableau color set for plotting
 PenColors = [(31, 119, 180), (255, 127, 14), (44, 160, 44), (214, 39, 40), (148, 103, 189), (140, 66, 75),
@@ -136,6 +138,7 @@ class ClUIWrapper():
 
         self.sources = sources  # Make globally set source dictionaries available to class
         self.instDAQLoop = {}  # Initialize dictionary containing data acquisition
+        self.activeSensors = [1]
 
         # Initialize every passed data module
         for dataSource in self.sources:
@@ -143,12 +146,13 @@ class ClUIWrapper():
                 self.instDAQLoop[dataSource['Name']] = ClWheelDataParsing(dataSource)
             if dataSource['Name'] in ['Frame']:
                 self.instDAQLoop[dataSource['Name']] = ClFrameDataParsing(dataSource, protocol = 'TCP')
+                self.activeSensors = self.instDAQLoop[dataSource['Name']].activeSensors
             if dataSource['Name'] in ['Left Phone', 'Right Phone', 'Frame Phone']:
                 self.instDAQLoop[dataSource['Name']] = ClPhoneDataParsing(dataSource, dataSource['Port'])
 
         self.app = QtGui.QApplication([])  # Initialize QT GUI, must only be called once
 
-        self.canvas = ClDisplayDataQT(self.sources) # Initialize QT display class
+        self.canvas = ClDisplayDataQT(self.sources, self.activeSensors) # Initialize QT display class
 
     def fnStart(self):
         """
@@ -178,7 +182,7 @@ class ClDisplayDataQT:
     Class for displaying IMU data using QT interface.
     """
 
-    def __init__(self, sources):
+    def __init__(self, sources, activeSensors):
         """
         Purpose:    Initialize QT window and subplots with axes and titles.
                     Store source data based on which sources were passed.
@@ -186,6 +190,7 @@ class ClDisplayDataQT:
         """
 
         self.sources = sources
+        self.activeSensors = activeSensors
 
         self.win = pg.GraphicsWindow(title="Received Signal(s)")  # creates a window
         self.win.resize(1200, 400)# Sets window size TODO: Look into dynamic resizing
@@ -193,10 +198,11 @@ class ClDisplayDataQT:
         self.plotData = {} # Create dictionary for subplot data
 
         # Set which parameters you want to plot, 3 is a good number for the window size
-        # self.graphSet = ['heading (deg)', 'pitch (deg)', 'roll (deg)']
-        # self.graphSet = ['heading (deg) C', 'pitch (deg) C', 'roll (deg) C']
+        # self.graphSet = ['Heading (deg)', 'Pitch (deg)', 'Roll (deg)']
         # self.graphSet = ['X Angular Velocity (rad/s)', 'Y Angular Velocity (rad/s)', 'Z Angular Velocity (rad/s)']
+        # self.graphSet = ['X Magnetometer', 'Y Magnetometer', 'Z Magnetometer']
         self.graphSet = ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Acceleration (m/s^2)']
+        # self.graphSet = ['Proximity (mm)']
         # Create plots
         for item in self.graphSet:
             self.plot[item] = self.win.addPlot(title="{}".format(item), clipToView=True)
@@ -213,7 +219,8 @@ class ClDisplayDataQT:
             # Initialize each source of data with specific Tableau color set
             for item in self.graphSet:
                 self.plotData[dataName][item] = self.plot[item].plot(pen=PenColors[i])
-                # self.plotData[dataName][item + ' C'] = self.plot[item].plot(pen=PenColors[i + 1])
+                if dataName == 'Frame' and 0 in self.activeSensors:
+                    self.plotData[dataName][item + ' 9-Axis'] = self.plot[item].plot(pen=PenColors[i + 6])
 
             # Create new row for each source
             self.win.nextRow()
@@ -239,18 +246,42 @@ class ClDisplayDataQT:
             qSize = dataSource['Queue'].qsize()
             for i in range(qSize):
                 buffer = dataSource['Queue'].get()
-                dataSource['DisplayData'][:, :] = np.roll(dataSource['DisplayData'], -1)
-                dataSource['DisplayData'][:, -1] = buffer
+                if buffer[0] == 0:
+                    dataSource['DisplayData-IMU_9'][:, :] = np.roll(dataSource['DisplayData-IMU_9'], -1)
+                    dataSource['DisplayData-IMU_9'][:, -1] = buffer[1::]
+                elif buffer[0] == 1:
+                    dataSource['DisplayData-IMU_6'][:, :] = np.roll(dataSource['DisplayData-IMU_6'], -1)
+                    dataSource['DisplayData-IMU_6'][:, -1] = buffer[1::]
+                elif (buffer[0] == 2 or buffer[0] == 3):
+                    dataSource['DisplayData-USS'][:, :] =  np.roll(dataSource['DisplayData-USS'], -1)
+                    dataSource['DisplayData-USS'][:, -1] = buffer[1::]
+                else:
+                    dataSource['DisplayData-IMU_6'][:, :] = np.roll(dataSource['DisplayData-IMU_6'], -1)
+                    dataSource['DisplayData-IMU_6'][:, -1] = buffer
+
             # if (len(dataSource['DisplayData'])) > 7:
             #     dataSource['DisplayData'][7, -qSize:0] = butter_lowpass_filter(dataSource['DisplayData'][7, -qSize:0], 0.5, 200)
             #     dataSource['DisplayData'][8, -qSize:0] = butter_lowpass_filter(dataSource['DisplayData'][8, -qSize:0], 0.5, 200)
             #     dataSource['DisplayData'][9, -qSize:0] = butter_lowpass_filter(dataSource['DisplayData'][9, -qSize:0], 0.5, 200)
 
-            for item in self.graphSet:
-                self.plotData[dataSource['Name']][item].setData(dataSource['DisplayData'][0],
-                                                                dataSource['DisplayData'][IMUDataDict[item]])
-                # self.plotData[dataSource['Name']][item + ' C'].setData(dataSource['DisplayData'][0],
-                #                                                 dataSource['DisplayData'][IMUDataDict[item + ' C']])
+            if dataSource['Name'] == 'Frame':
+                for item in self.graphSet:
+
+                    if 0 in self.activeSensors:
+                        self.plotData[dataSource['Name']][item + ' 9-Axis'].setData(dataSource['DisplayData-IMU_9'][0],
+                                                                    dataSource['DisplayData-IMU_9'][IMUDataDict[item]])
+                    if 1 in self.activeSensors:
+                        self.plotData[dataSource['Name']][item].setData(dataSource['DisplayData-IMU_6'][0],
+                                                                        dataSource['DisplayData-IMU_6'][
+                                                                            IMUDataDict[item]])
+                    if 2 in self.activeSensors:
+                        self.plotData[dataSource['Name']][item].setData(dataSource['DisplayData-USS'][0],
+                                                                        dataSource['DisplayData-USS'][
+                                                                            IMUDataDict[item]])
+            else:
+                for item in self.graphSet:
+                    self.plotData[dataSource['Name']][item].setData(dataSource['DisplayData-IMU_6'][0],
+                                                                    dataSource['DisplayData-IMU_6'][IMUDataDict[item]])
 
 
 if __name__ == "__main__":

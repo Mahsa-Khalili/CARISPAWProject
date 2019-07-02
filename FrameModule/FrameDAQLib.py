@@ -22,11 +22,13 @@ import time
 import datetime
 import numpy as np
 import pandas as pd
+import pickle as pkl
 import math
 import socket
 import bluetooth
 from multiprocessing import Queue
-import frameUnitMsg_pb2 as frameUnitMsg
+# import frameUnitMsg_pb2 as frameUnitMsg
+import carisPAWBuffers_pb2 as carisPAWBuffers
 from cobs import cobs
 from scipy.signal import butter, lfilter
 
@@ -80,25 +82,35 @@ class ClFrameDataParsing:
         self.refTime = 0
         self.timeOffset = 0
 
-        self.displayData = dataSource['DisplayData'] # Make shared display data variable accessible
-
         self.FrameUnit = ClWirelessServer(self.address, dataSource['Host'], dataSource['Port'], self.protocol) # Create Server
+
+        self.activeSensors = pkl.loads(self.FrameUnit.activeSensors)
 
         # Create class storage variables
         self.timeReceived = []
-        self.timeStamp = []
+        self.timeStamp6050 = []
+        self.timeStamp9250 = []
+        self.timeStampUSS = []
+
         self.xData6050 = []
         self.yData6050 = []
         self.zData6050 = []
         self.xGyro6050 = []
         self.yGyro6050 = []
         self.zGyro6050 = []
+
         self.xData9250 = []
         self.yData9250 = []
         self.zData9250 = []
         self.xGyro9250 = []
         self.yGyro9250 = []
         self.zGyro9250 = []
+        self.xMag9250 = []
+        self.yMag9250 = []
+        self.zMag9250 = []
+
+        self.proximityDown = []
+
         self.heading = []
         self.pitch = []
         self.roll = []
@@ -118,14 +130,14 @@ class ClFrameDataParsing:
         Passed:     None.
         """
 
-        freqCount = 0
         status = 'Active.' # Set marker to active
+        sensorCount = [-50, -50, -15, 0, 0]
 
         if self.protocol == ('TCP' or 'BT'):
             self.FrameUnit.fnCOBSIntialClear() # Wait until message received starts at the correct location
 
         # Cycle through data retrieval to clear out buffered messages
-        for i in range(1000):
+        for i in range(500):
             if status != 'Disconnected.':
                 status = self.FrameUnit.fnRetievePiMessage()
                 self.fnReceiveData(self.FrameUnit.cobsMessage, state = 'wait')
@@ -140,12 +152,19 @@ class ClFrameDataParsing:
         # Cycle through data retrieval until client disconnects or terminate signal received
         while status != 'Disconnected.' and self.runStatus.empty():
             status = self.FrameUnit.fnRetievePiMessage()
-            self.fnReceiveData(self.FrameUnit.cobsMessage)
-            freqCount += 1
-            if freqCount >= 500:
-                freqCount = 0
-                print('Frame Frequency: {} Hz'.format(500/(self.timeStamp[-1] - self.timeStamp[-501])))
+            frameBuffer = self.fnReceiveData(self.FrameUnit.cobsMessage)
 
+            sensorCount[frameBuffer.sensorType] += 1
+
+            if sensorCount[0] >= 500:
+                print('IMU-9 Frequency: {} Hz'.format(500/(self.timeStamp9250[-1] - self.timeStamp9250[-501])))
+                sensorCount[0] = 0
+            elif sensorCount[1] >= 500:
+                print('IMU-6 Frequency: {} Hz'.format(500/(self.timeStamp6050[-1] - self.timeStamp6050[-501])))
+                sensorCount[1] = 0
+            elif sensorCount[2] >= 100:
+                print('USS-DOWN Frequency: {} Hz'.format(100/(self.timeStampUSS[-1] - self.timeStampUSS[-101])))
+                sensorCount[2] = 0
         self.fnSaveData()
 
         # Close socket connection
@@ -161,7 +180,7 @@ class ClFrameDataParsing:
         try:
             # Pass msg to frameUnitMsg to parse into float values stored in imuMsg instance
             data = msg
-            frameUnitMsgRcv = frameUnitMsg.frameUnit()
+            frameUnitMsgRcv = carisPAWBuffers.frameUnit()
             frameUnitMsgRcv.ParseFromString(data)
 
             # Initialize time offset and reference time for time synchronization
@@ -177,6 +196,7 @@ class ClFrameDataParsing:
                 self.timeReceived.append(time.time())
                 # Append data to display data and class variables
                 self.fnStoreData(frameUnitMsgRcv)
+                return frameUnitMsgRcv
 
         # Returns exceptions as e to avoid code crash but still allow for debugging
         except Exception as e:
@@ -190,49 +210,52 @@ class ClFrameDataParsing:
         """
 
         # Appends class lists
-        self.timeStamp.append(self.refTime + frameUnitPB.time_stamp - self.timeOffset)
-        self.xData6050.append(frameUnitPB.acc_x_6050)
-        self.yData6050.append(frameUnitPB.acc_y_6050)
-        self.zData6050.append(frameUnitPB.acc_z_6050)
-        # self.xGyro6050.append(frameUnitPB.angular_x_6050 * math.pi / 180)
-        # self.yGyro6050.append(frameUnitPB.angular_y_6050 * math.pi / 180)
-        # self.zGyro6050.append(frameUnitPB.angular_z_6050 * math.pi / 180)
 
-        self.xGyro6050.append(frameUnitPB.angular_x_6050)
-        self.yGyro6050.append(frameUnitPB.angular_y_6050)
-        self.zGyro6050.append(frameUnitPB.angular_z_6050)
+        if frameUnitPB.sensorType == carisPAWBuffers.frameUnit.IMU_6:
 
-        self.xData9250.append(frameUnitPB.acc_x_9250)
-        self.yData9250.append(frameUnitPB.acc_y_9250)
-        self.zData9250.append(frameUnitPB.acc_z_9250)
-        self.xGyro9250.append(frameUnitPB.angular_x_9250 * math.pi / 180)
-        self.yGyro9250.append(frameUnitPB.angular_y_9250 * math.pi / 180)
-        self.zGyro9250.append(frameUnitPB.angular_z_9250 * math.pi / 180)
+            self.timeStamp6050.append(self.refTime + frameUnitPB.time_stamp - self.timeOffset)
+            self.xData6050.append(frameUnitPB.acc_x)
+            self.yData6050.append(frameUnitPB.acc_y)
+            self.zData6050.append(frameUnitPB.acc_z)
+            self.xGyro6050.append(frameUnitPB.angular_x * math.pi / 180)
+            self.yGyro6050.append(frameUnitPB.angular_y * math.pi / 180)
+            self.zGyro6050.append(frameUnitPB.angular_z * math.pi / 180)
 
-        self.fnGetAngles()
+            self.Queue.put([carisPAWBuffers.frameUnit.IMU_6, self.timeStamp6050[-1], -frameUnitPB.acc_x, -frameUnitPB.acc_y, frameUnitPB.acc_z,
+                            frameUnitPB.angular_x * math.pi / 180, frameUnitPB.angular_y * math.pi / 180,
+                            frameUnitPB.angular_z * math.pi / 180])
+
+        elif frameUnitPB.sensorType == carisPAWBuffers.frameUnit.IMU_9:
+            self.timeStamp9250.append(self.refTime + frameUnitPB.time_stamp - self.timeOffset)
+            self.xData9250.append(frameUnitPB.acc_x)
+            self.yData9250.append(frameUnitPB.acc_y)
+            self.zData9250.append(frameUnitPB.acc_z)
+            self.xMag9250.append(frameUnitPB.mag_x)
+            self.yMag9250.append(frameUnitPB.mag_y)
+            self.zMag9250.append(frameUnitPB.mag_z)
+            self.xGyro9250.append(frameUnitPB.angular_x * math.pi / 180)
+            self.yGyro9250.append(frameUnitPB.angular_y * math.pi / 180)
+            self.zGyro9250.append(frameUnitPB.angular_z * math.pi / 180)
+
+            self.Queue.put([carisPAWBuffers.frameUnit.IMU_9, self.timeStamp9250[-1], frameUnitPB.acc_x, frameUnitPB.acc_y, frameUnitPB.acc_z,
+                            frameUnitPB.angular_x * math.pi / 180, frameUnitPB.angular_y * math.pi / 180,
+                            frameUnitPB.angular_z * math.pi / 180, frameUnitPB.mag_x, frameUnitPB.mag_y,
+                            frameUnitPB.mag_z])
+
+        elif frameUnitPB.sensorType == carisPAWBuffers.frameUnit.USS_DOWN:
+            self.timeStampUSS.append(self.refTime + frameUnitPB.time_stamp - self.timeOffset)
+            self.proximityDown.append(frameUnitPB.USensorDownward)
+
+            self.Queue.put([carisPAWBuffers.frameUnit.USS_DOWN, self.timeStampUSS[-1], frameUnitPB.USensorDownward])
+
+        # self.fnGetAngles9250()
 
         # Sends received data to queue
-        # self.Queue.put([self.refTime + frameUnitPB.time_stamp - self.timeOffset, frameUnitPB.acc_x_9250, frameUnitPB.acc_y_9250, frameUnitPB.acc_z_9250,
-        #                                  frameUnitPB.angular_x_9250 * math.pi / 180, frameUnitPB.angular_y_9250 * math.pi / 180,
-        #                                  frameUnitPB.angular_z_9250 * math.pi / 180, frameUnitPB.acc_x_6050, frameUnitPB.acc_y_6050, frameUnitPB.acc_z_6050,
-        #                                  frameUnitPB.angular_x_6050 * math.pi / 180, frameUnitPB.angular_y_6050 * math.pi / 180,
-        #                                  frameUnitPB.angular_z_6050 * math.pi / 180])
-
-        head = frameUnitPB.angular_x_6050
-        pitch = frameUnitPB.angular_y_6050
-        roll = frameUnitPB.angular_z_6050
 
         # pitch =  math.atan2(self.xData9250[-1], self.zData9250[-1]) * 180 / math.pi
         # roll = math.atan2(self.yData9250[-1], self.zData9250[-1]) * 180 / math.pi
 
-        self.Queue.put([self.refTime + frameUnitPB.time_stamp - self.timeOffset, frameUnitPB.acc_x_9250, frameUnitPB.acc_y_9250, frameUnitPB.acc_z_9250,
-                                         frameUnitPB.angular_x_9250 * math.pi / 180, frameUnitPB.angular_y_9250 * math.pi / 180,
-                                         frameUnitPB.angular_z_9250 * math.pi / 180, self.valHeading, self.valPitch, self.valRoll,
-                                         frameUnitPB.angular_x_6050, frameUnitPB.angular_y_6050, frameUnitPB.angular_z_6050])
-
-
-
-    def fnGetAngles(self):
+    def fnGetAngles9250(self):
         """
         Purpose:    Utilize complimentary filter to get angle of device
         passed:     None.
@@ -240,7 +263,7 @@ class ClFrameDataParsing:
 
         alpha = 0.98
 
-        timeDiff = self.timeStamp[-1] - self.timeStamp[-2]
+        timeDiff = self.timeStamp9250[-1] - self.timeStamp9250[-2]
 
         # Integrate the gyroscope data -> int(angularSpeed) = angle
         self.valRoll += (self.xGyro9250[-1] * timeDiff) * 180 / math.pi # Angle around the X-axis
@@ -269,7 +292,7 @@ class ClFrameDataParsing:
         Passed:     None.
         """
 
-        timeString = [datetime.datetime.fromtimestamp(utcTime).strftime('%Y-%m-%d %H:%M:%S:%f')[:-3] for utcTime in self.timeStamp]
+        timeString = [datetime.datetime.fromtimestamp(utcTime).strftime('%Y-%m-%d %H:%M:%S:%f')[:-3] for utcTime in self.timeStamp9250]
 
         IMUData = pd.DataFrame({'ACCELEROMETER X (m/s²)': np.array(self.xData9250),
                      'ACCELEROMETER Y (m/s²)': np.array(self.yData9250),
@@ -277,11 +300,11 @@ class ClFrameDataParsing:
                      'GYROSCOPE X (rad/s)': np.array(self.xGyro9250),
                      'GYROSCOPE Y (rad/s)': np.array(self.yGyro9250),
                      'GYROSCOPE Z (rad/s)': np.array(self.zGyro9250),
-                     'Time since start in ms ': np.array(self.timeStamp) - self.timeStamp[0],
+                     'Time since start in ms ': np.array(self.timeStamp9250) - self.timeStamp9250[0],
                      'YYYY-MO-DD HH-MI-SS_SSS': timeString,
-                     'MagX': self.xGyro6050,
-                     'MagY': self.yGyro6050,
-                     'MagZ': self.zGyro6050}
+                     'MagX': self.xMag9250,
+                     'MagY': self.yMag9250,
+                     'MagZ': self.zMag9250}
                                )
 
         IMUData.to_csv(self.path, index = False)
@@ -320,6 +343,8 @@ class ClWirelessServer:
             self.socket = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
             print('Initialized.')
             self.socket.connect((address, port))
+
+        self.activeSensors = self.socket.recv(24)
 
     def fnCOBSIntialClear(self):
         """

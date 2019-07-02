@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import bluetooth
 from cobs import cobs
-from libraries.imumsg import imumsg_pb2 as imuMsg
+import libraries.carisPAWBuffers_pb2 as carisPAWBuffers
 import math
 import time
 from multiprocessing import Queue
@@ -125,7 +125,7 @@ class ClWheelDataParsing:
             freqCount += 1
             if freqCount >= 500:
                 freqCount = 0
-                print('Wheel Frequency: {} Hz'.format(500/(self.timeReceived[-1] - self.timeReceived[-501])))
+                print('Wheel Frequency: {} Hz'.format(500/(self.timeStamp[-1] - self.timeStamp[-501])))
 
         self.fnSaveData()
 
@@ -151,21 +151,21 @@ class ClWheelDataParsing:
 
             # Pass msg to imuMsg to parse into float values stored in imuMsg instance
             data = msg[4:]
-            imuMsgBT = imuMsg.IMUInfo()
-            imuMsgBT.ParseFromString(data)
+            wheelMsgBT = carisPAWBuffers.wheelUnit()
+            wheelMsgBT.ParseFromString(data)
 
             # Initialize time offset and reference time for time synchronization
             if state == 'init':
                 self.refTime = time.time()
-                self.timeOffset = imuMsgBT.time_stamp / 1000000
+                self.timeOffset = wheelMsgBT.time_stamp / 1000
                 self.timeReceived.append(time.time())
                 # Append data to display data and class variables
-                self.fnStoreData(imuMsgBT)
+                self.fnStoreData(wheelMsgBT)
 
             # Record data into appropriate class lists and display data array
             elif state == 'stream':
                 self.timeReceived.append(time.time())
-                self.fnStoreData(imuMsgBT)
+                self.fnStoreData(wheelMsgBT)
 
         # Returns exceptions as e to avoid code crash but still allow for debugging
         except Exception as e:
@@ -179,7 +179,7 @@ class ClWheelDataParsing:
         """
 
         # Sets adjusted timestamp
-        timeStamp = self.refTime + wheelDataPB.time_stamp / 1000000 - self.timeOffset
+        timeStamp = self.refTime + wheelDataPB.time_stamp / 1000 - self.timeOffset
 
         # Sends received data to queue
         self.Queue.put([timeStamp, wheelDataPB.acc_x * 9.8065, wheelDataPB.acc_y * 9.8065, wheelDataPB.acc_z * 9.8065,

@@ -1,7 +1,7 @@
 #include "MPU6050.h"
 #include <math.h>
-int Gscale = GFS_250DPS;
-int Ascale = AFS_2G;
+int Gscale = GFS_500DPS;
+int Ascale = AFS_4G;
 
 float MPU6050lib::getGres() {
   switch (Gscale)
@@ -236,14 +236,14 @@ void MPU6050lib::calibrateMPU6050(float * dest1, float * dest2)
   gyro_bias[1]  /= (int32_t) packet_count;
   gyro_bias[2]  /= (int32_t) packet_count;
 
-  // int32_t total_bias = sqrt(pow(accel_bias[0], 2) + pow(accel_bias[1], 2) + pow(accel_bias[2], 2));
+   /*int32_t total_bias = sqrt(pow(accel_bias[0], 2) + pow(accel_bias[1], 2));
   
-  // accel_bias[0] -= accel_bias[0] * (int32_t) accelsensitivity / total_bias;
-  // accel_bias[1] -= accel_bias[1] * (int32_t) accelsensitivity / total_bias;
-  // accel_bias[2] -= accel_bias[2] * (int32_t) accelsensitivity / total_bias;
-  
-  if (accel_bias[1] > 0L) {
-    accel_bias[1] -= (int32_t) accelsensitivity; // Remove gravity from the z-axis accelerometer bias calculation
+   accel_bias[0] -= accel_bias[0] * (int32_t) accelsensitivity / total_bias;
+   accel_bias[1] -= accel_bias[1] * (int32_t) accelsensitivity / total_bias;
+   accel_bias[2] -= accel_bias[2] * (int32_t) accelsensitivity / total_bias;
+  */
+  if (accel_bias[1] > 0l) {
+    accel_bias[1] -= (int32_t) accelsensitivity; // remove gravity from the z-axis accelerometer bias calculation
   }
   else {
     accel_bias[1] += (int32_t) accelsensitivity;

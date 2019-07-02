@@ -11,7 +11,7 @@
 
 #include <pbSensorMsgGen.h>
 #include <pb_decode.h>
-#include <imumsg.pb.h>
+#include <carisPAWBuffers.pb.h>
 #include <stddef.h>
 #include <Chrono.h>
 
@@ -42,7 +42,7 @@ uint8_t msgBuffer[2000];
 uint8_t rcvmsgBuffer[2000];
 String receivedText = "";
 String cmd = "";
-IMUInfo _msg = IMUInfo_init_zero; // Initialize IMUInfo struct
+wheelUnit _msg = wheelUnit_init_zero; // Initialize wheelUnit struct
 
 pbSensorMsgGenerator pbMsgGenerator;
 COBS cobs;
@@ -173,7 +173,7 @@ void loop() {
       
     //*****Send message over BT*****//
     // Update the value of IMU sensor.
-    pbMsgGenerator.addIMUData(micros(), ax, ay, az, gx, gy, gz);
+    pbMsgGenerator.addIMUData(millis(), ax, ay, az, gx, gy, gz);
 
     // Get length of message
     int lengthf = pbMsgGenerator.generatePBMessage();
@@ -243,13 +243,13 @@ void receiveMsg(){
     }    
 
       /* Allocate space for the decoded message. */
-      IMUInfo message = IMUInfo_init_zero;
+      wheelUnit message = wheelUnit_init_zero;
       
       /* Create a stream that reads from the buffer. */
       pb_istream_t stream = pb_istream_from_buffer(msgBuffer, msgLength);
       
       /* Now we are ready to decode the message. */
-      bool status = pb_decode(&stream, IMUInfo_fields, &message);
+      bool status = pb_decode(&stream, wheelUnit_fields, &message);
       
       /* Check for errors... */
       if (!status)

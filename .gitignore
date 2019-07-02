@@ -1,5 +1,4 @@
 *.csv
 venv/
-WheelModule/TeensyWheelModule/libraries/
 WheelModule/IMU Data/
 .idea/
