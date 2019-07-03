@@ -1,4 +1,5 @@
 *.csv
+*.pyc
 venv/
 WheelModule/IMU Data/
 .idea/

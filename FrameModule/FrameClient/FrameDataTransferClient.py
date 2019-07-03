@@ -1,0 +1,198 @@
+"""
+Author:         Kevin Ta
+Date:           2019 June 24th
+Purpose:        This Python script should autostart when the Raspberry Pi is first powered.
+                The script will initiate a UDP/TCP/BT connection with the laptop to
+                wirelessly transmit frame sensor data. 
+                
+                Sensors:
+                  1. MPU9250 - 9-Axis IMU
+                  2. MPU6050 - 6-Axis IMU (Redundant)
+                  3. AJ-SR04M-1 - Ultrasonic Sensor
+                  4. AJ-SR04M-2 - Ultrasonic Sensor
+                  5. Sony IMX219 - RaspberryPi Camera Module v2
+"""
+
+# IMPORTED LIBRARIES
+
+import smbus
+import math
+import time
+import datetime
+import socket
+import bluetooth
+import os
+import sys
+
+import pickle as pkl
+import numpy as np
+
+from cobs import cobs
+from multiprocessing import Process, Queue
+import asyncio
+
+# LOCALLY IMPORTED LIBRARIES
+dir_path = os.path.dirname(os.path.realpath(__file__))
+sys.path.insert(0, os.path.join(dir_path, 'libraries'))
+
+import carisPAWBuffers_pb2 as carisPAWBuffers
+
+from mpu6050 import mpu6050
+from mpu9250 import mpu9250
+from fusion import Fusion
+
+from IMUSensorLib import *
+from USSSensorLib import *
+
+# DEFINITIONS
+
+HOST = '192.168.0.100'
+PORT = 65432
+BTAddress = '54:8c:a0:a4:8e:a2'
+
+SENSOR_LIST = ['IMU_9', 'IMU_6', 'USS_DOWN', 'USS_FORW', 'PI_CAM']
+
+ACTIVE_SENSORS = [0, 2]
+
+# CLASSES
+
+class ClTransferClient:
+	"""
+	Class for establishing wireless communications.
+	"""
+	
+	def __init__(self, protocol = 'UDP'):
+		"""
+		Purpose:	Initialize various sensors 
+		Passed: 
+		"""
+		self.protocol = protocol
+		
+		self.dataQueue = Queue()
+		self.runMarker= Queue()
+		
+		self.instDAQLoop = {} 
+		
+		for sensor in ACTIVE_SENSORS:
+			if sensor == 0:
+				self.instDAQLoop[SENSOR_LIST[sensor]] = ClMpu9250DAQ(self.dataQueue, self.runMarker)
+			if sensor == 1:
+				self.instDAQLoop[SENSOR_LIST[sensor]] = ClMpu6050DAQ(self.dataQueue, self.runMarker)
+			if sensor == 2:
+				self.instDAQLoop[SENSOR_LIST[sensor]] = ClProximitySensorDAQ(self.dataQueue, self.runMarker)
+
+		if self.protocol == 'TCP':
+			self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			self.socket.connect((HOST, PORT))
+			print('Connected.')
+			
+		elif self.protocol == 'UDP':
+			self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+			self.socket.connect((HOST, PORT))
+		
+		elif self.protocol =='BT':
+			self.sock = bluetooth.BluetoothSocket(bluetooth.RFCOMM)
+			self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR,1)
+			self.sock.bind(('',3))
+			self.sock.listen(1)
+			self.socket, self.address = self.sock.accept()
+			
+		self.socket.send(pkl.dumps(ACTIVE_SENSORS))
+
+	def fnStart(self, frequency):
+
+		print('Start Process.')
+		
+		timeStart = time.time()
+		
+		processes = {}
+
+		for sensor in ACTIVE_SENSORS:
+			processes[SENSOR_LIST[sensor]] = Process(target=self.instDAQLoop[SENSOR_LIST[sensor]].fnRun, args = (frequency, ))
+			processes[SENSOR_LIST[sensor]].start()
+
+		while True:
+
+			transmissionData = self.dataQueue.get()
+
+			if transmissionData[0] in ['IMU_9', 'IMU_6']:
+				dataBuffer = self.fnIMUtoPB(transmissionData)
+			elif transmissionData[0] in ['USS_DOWN', 'USS_FORW']:
+				dataBuffer = self.fnUSStoPB(transmissionData)
+			
+			dataCobs = cobs.encode(dataBuffer.SerializeToString())
+			
+			self.socket.send(dataCobs)
+			
+			if self.protocol == ('TCP' or 'BT'):
+				self.socket.send(b'\x00')
+		
+	def fnShutDown(self):
+		
+		print('Closing Socket')
+		self.socket.close()
+		try:
+			self.sock.close()
+		except Exception as e:
+			print(e)
+
+	def fnIMUtoPB(self, data):
+		
+		dataBuffer = carisPAWBuffers.frameUnit()
+		dataBuffer.time_stamp = data[1]
+		dataBuffer.acc_x =  data[2]
+		dataBuffer.acc_y =  data[3]
+		dataBuffer.acc_z =  data[4]
+		dataBuffer.angular_x =  data[5]
+		dataBuffer.angular_y =  data[6]
+		dataBuffer.angular_z =  data[7]
+		
+		if len(data) > 8:
+			dataBuffer.sensorType = carisPAWBuffers.frameUnit.IMU_9
+			dataBuffer.mag_x =  data[8]
+			dataBuffer.mag_y =  data[9]
+			dataBuffer.mag_z =  data[10]
+		else:
+			dataBuffer.sensorType = carisPAWBuffers.frameUnit.IMU_6
+	
+		return dataBuffer
+		
+	def fnUSStoPB(self, data):
+		
+		dataBuffer = carisPAWBuffers.frameUnit()
+		dataBuffer.time_stamp = data[1]
+		dataBuffer.USensorDownward =  data[2]
+		if data[0] == 'USS_DOWN':
+			dataBuffer.sensorType = carisPAWBuffers.frameUnit.USS_DOWN
+	
+		return dataBuffer
+	
+
+# MAIN PROGRAM
+
+if __name__=="__main__":
+	
+	connectedStatus = False
+
+	dummyQueue = Queue
+	dummyMarker = Queue
+
+	instMpu9250DAQ = ClMpu9250DAQ(dummyQueue, dummyMarker)
+	instMpu9250DAQ.fnCalibrate()
+	instMpu6050DAQ = ClMpu6050DAQ(dummyQueue, dummyMarker)
+	instMpu6050DAQ.fnCalibrate()
+
+	while True:
+		try:
+			print('Connecting to computer...')
+			instTransferClient = ClTransferClient('TCP')
+			connectedStatus = True
+			instTransferClient.fnStart(200)
+		except Exception as e:
+			if connectedStatus:
+				instTransferClient.runMarker.put(False)
+				instTransferClient.fnShutDown()
+				connectedStatus = False
+			print(e)
+
+		pass
