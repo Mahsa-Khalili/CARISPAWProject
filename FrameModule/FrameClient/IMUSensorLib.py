@@ -43,7 +43,6 @@ class ClMpu6050DAQ:
 		"""
 		
 		self.sensor = mpu6050(0x68)
-		self.sensor.set_gyro_range(mpu6050.GYRO_RANGE_2000DEG)
 		self.dataQueue = dataQueue
 		self.runMarker = runMarker
 		self.offset = np.zeros(6)
@@ -60,7 +59,7 @@ class ClMpu6050DAQ:
 		
 		data = list(map(operator.sub,self.sensor.allSensors, self.offset[0:6]))
 		data[0:3] = [a*b for a,b in zip(data[0:3], [9.8065]*3)]
-		self.dataQueue.put(['IMU_6', time.time(), data[0], data[1], data[2], data[3], data[4], data[5]])
+		self.dataQueue.put(['IMU_6', time.time(), data[0], -data[1], -data[2], data[3], -data[4], -data[5]])
 		
 	def fnRun(self, frequency):
 		"""
@@ -87,8 +86,10 @@ class ClMpu6050DAQ:
 			calArray[0:6, i] = (self.sensor.accel + self.sensor.gyro)
 		
 		self.offset[0:6] = np.mean(calArray[0:6], axis=1)
-		self.offset[2] = self.offset[2]  - 1 
-		
+		if self.offset[2] > 0:
+			self.offset[2] = self.offset[2]  - 1 
+		else:
+			self.offset[2] = self.offset[2]  + 1
 		print(self.offset)
 		
 		pkl.dump(self.offset, open('IMU6050Offset.pkl', 'wb'))
@@ -112,12 +113,13 @@ class ClMpu9250DAQ:
 		#~ acc = np.multiply(self.sensor.accel - self.offset[0:3], 9.8065)
 		#~ acc = [a*b for a,b in zip(self.sensor.accel - self.offset[0:3], [9.8065]*3)]
 		#~ gyro = self.sensor.gyro - self.offset[3:6]
+		#~ mag = [0, 0, 0]
 		#~ mag = self.sensor.mag
 		
 		data = list(map(operator.sub, self.sensor.allSensors, self.offset[0:9]))
 		#~ data = self.loop.run_until_complete(self.sensor.i2c_allSensors()) - self.offset[0:9]
 		data[0:3] = [a*9.8065 for a in data[0:3]]
-		self.dataQueue.put(['IMU_9', time.time(), data[0], data[1], data[2], data[3], data[4], data[5], data[6], data[7], data[8]])
+		self.dataQueue.put(['IMU_9', time.time(), -data[0], data[1], -data[2], -data[3], data[4], -data[5], -data[7], data[6], data[8]])
 		
 		#~ mag = [0, 0, 0]
 		#~ ang = [self.Fusion.heading, self.Fusion.pitch, math.fmod((self.Fusion.roll + 180)  + 180 * 3, 2* 180) -180]
@@ -140,7 +142,7 @@ class ClMpu9250DAQ:
 		
 		#~ timer.cancel()
 		
-		waitTime = 1/frequency
+		waitTime = 10/frequency
 		
 		while (self.runMarker.empty()):
 			self.fnRetrieveData()
@@ -155,10 +157,13 @@ class ClMpu9250DAQ:
 			calArray[0:6, i] = (self.sensor.accel + self.sensor.gyro)
 		
 		self.offset[0:6] = np.mean(calArray[0:6], axis=1)
-		self.offset[2] = self.offset[2]  - 1 
+		if self.offset[2] > 0:
+			self.offset[2] = self.offset[2]  - 1 
+		else:
+			self.offset[2] = self.offset[2]  + 1
 		
 		#~ self.offset[6:12] = [28.4884, 29.1631, -1.3495, 1.1899, 0.9215, 0.9308]
-		self.offset[6:12] = [25.5646, 28.8632, 0.7497, 1.1249, 0.9463, 0.9485]
+		#~ self.offset[6:12] = [25.5646, 28.8632, 0.7497, 1.1249, 0.9463, 0.9485]
 		
 		
 		print(self.offset)
@@ -178,7 +183,7 @@ if __name__ == "__main__":
 	dataQueue6050 = Queue()
 	dataQueue = Queue()
 	runMarker = Queue()
-	frequency = 200
+	frequency = 300
 	
 	#~ instMpu6050DAQ = ClMpu6050DAQ(dataQueue6050, runMarker)
 	#~ instMpu9250DAQ = ClMpu9250DAQ(dataQueue9250, runMarker)
@@ -189,8 +194,8 @@ if __name__ == "__main__":
 	#~ P9250 = Process(target=AsyncMpuDAQ, args = (instMpu9250DAQ, frequency, ))
 	P6050 = Process(target=instMpu6050DAQ.fnRun, args = (frequency, ))
 	P9250 = Process(target=instMpu9250DAQ.fnRun, args = (frequency, ))
-	#~ P6050.start()
-	P9250.start()
+	P6050.start()
+	#~ P9250.start()
 	
 	counter = [ -20, -20]
 	timeStamp9250 = []

@@ -28,14 +28,14 @@ class mpu6050:
 
     # Pre-defined ranges
     ACCEL_RANGE_2G = 0x00
-    ACCEL_RANGE_4G = 0x08
-    ACCEL_RANGE_8G = 0x10
-    ACCEL_RANGE_16G = 0x18
+    ACCEL_RANGE_4G = (0x01 << 3)
+    ACCEL_RANGE_8G = (0x02 << 3)
+    ACCEL_RANGE_16G = (0x03 << 3)
 
     GYRO_RANGE_250DEG = 0x00
-    GYRO_RANGE_500DEG = 0x08
-    GYRO_RANGE_1000DEG = 0x10
-    GYRO_RANGE_2000DEG = 0x18
+    GYRO_RANGE_500DEG = (0x01 << 3)
+    GYRO_RANGE_1000DEG = (0x02 << 3)
+    GYRO_RANGE_2000DEG = (0x03 << 3)
 
     # MPU-6050 Registers
     PWR_MGMT_1 = 0x6B
@@ -61,9 +61,12 @@ class mpu6050:
         # Wake up the MPU-6050 since it starts in sleep mode
         self.bus.write_byte_data(self.address, self.PWR_MGMT_1, 0x00)
         
+        self.set_accel_range(self.ACCEL_RANGE_4G)
+        self.set_gyro_range(self.GYRO_RANGE_500DEG)
+        
         #normalization coefficients 
-        self.alsb = 2.0 / 32760 # ACCEL_2G
-        self.glsb = 250.0 / 32760 # GYRO_250DPS
+        self.alsb = 4.0 / 32760 # ACCEL_2G
+        self.glsb = 500.0 / 32760 # GYRO_250DPS
 
     # I2C communication methods
 
@@ -258,7 +261,7 @@ class mpu6050:
         y = self.conv(data[2], data[3]) * lsb
         z = self.conv(data[4], data[5]) * lsb
 
-        return (x, y, z)
+        return [x, y, z]
     
     def conv(self, msb, lsb):
         value = lsb | (msb << 8)
@@ -276,17 +279,18 @@ class mpu6050:
     @property    
     def allSensors(self):
 
-        accData = self.bus.read_i2c_block_data(self.address, self.ACCEL_XOUT0, 6)
-        gyroData = self.bus.read_i2c_block_data(self.address, self.GYRO_XOUT0, 6)
+        [accData, gyroData] = map(lambda x, y: self.read_xyz(x, y), [self.ACCEL_XOUT0, self.GYRO_XOUT0], [self.alsb, self.glsb])
+        accData.extend(gyroData)
+        return accData
+        
+        #~ data = [ctypes.c_short(accData[0] << 8 | accData[1]).value,   ctypes.c_short(accData[2] << 8 | accData[3]).value,   ctypes.c_short(accData[4] << 8 | accData[5]).value, 
+                #~ ctypes.c_short(gyroData[0] << 8 | gyroData[1]).value, ctypes.c_short(gyroData[2] << 8 | gyroData[3]).value, ctypes.c_short(gyroData[4] << 8 | gyroData[5]).value]
 		
-        data = [ctypes.c_short(accData[0] << 8 | accData[1]).value,   ctypes.c_short(accData[2] << 8 | accData[3]).value,   ctypes.c_short(accData[4] << 8 | accData[5]).value, 
-                ctypes.c_short(gyroData[0] << 8 | gyroData[1]).value, ctypes.c_short(gyroData[2] << 8 | gyroData[3]).value, ctypes.c_short(gyroData[4] << 8 | gyroData[5]).value]
+        #~ lsb = [self.alsb]*3 + [self.glsb]*3
 		
-        lsb = [self.alsb]*3 + [self.glsb]*3
+        #~ data = [a*b for a,b in zip(lsb, data)]
 		
-        data = [a*b for a,b in zip(lsb, data)]
-		
-        return data
+        #~ return data
 
 if __name__ == "__main__":
     mpu = mpu6050(0x68)

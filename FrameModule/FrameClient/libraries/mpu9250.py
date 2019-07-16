@@ -95,11 +95,11 @@ class mpu9250(object):
 		sleep(0.2)
 		self.bus.write_byte_data(MPU9250_ADDRESS, PWR_MGMT_1, 0x01)  # auto select clock source
 		self.write(MPU9250_ADDRESS, ACCEL_CONFIG, ACCEL_4G) # Gravity Limit
-		self.write(MPU9250_ADDRESS, GYRO_CONFIG, GYRO_250DPS)
+		self.write(MPU9250_ADDRESS, GYRO_CONFIG, GYRO_500DPS)
 		configRegister = self.read8(MPU9250_ADDRESS, 0x26)
 		configRegister = configRegister | 0x03 # Gyroscope cut-off at 184 Hz
 		self.write(MPU9250_ADDRESS, 0x26,  configRegister)
-		self.write(MPU9250_ADDRESS, 0x29, 0x03) # Accelerometer cut-off at 41 Hz
+		self.write(MPU9250_ADDRESS, 0x29, 0x01) # Accelerometer cut-off at 41 Hz
 
 		# You have to enable the other chips to join the I2C network
 		# then you should see 0x68 and 0x0c from:
@@ -115,8 +115,8 @@ class mpu9250(object):
 		self.write(AK8963_ADDRESS, AK8963_ASTC, 0)
 		
 		#normalization coefficients 
-		self.alsb = 2.0 / 32760 # ACCEL_2G
-		self.glsb = 250.0 / 32760 # GYRO_250DPS
+		self.alsb = 4.0 / 32760 # ACCEL_2G
+		self.glsb = 500.0 / 32760 # GYRO_250DPS
 		self.mlsb = 4912.0 / 32760 # MAGNET range +-4800
 
 		# i think i can do this???
@@ -157,6 +157,7 @@ class mpu9250(object):
 
 		return (x, y, z)
 
+
 	def read_mag_xyz(self, address, register, lsb):
 		"""
 		Reads x, y, and z axes at once and turns them into a tuple.
@@ -180,6 +181,22 @@ class mpu9250(object):
 
 		return (x, y, z)
 
+	def read_xyz_universal(self, address, register, lsb):
+		"""
+		Reads x, y, and z axes at once and turns them into a tuple.
+		"""
+		data = self.bus.read_i2c_block_data(address, register, 6)
+
+		if register != 0x03:
+			x = self.conv(data[0], data[1]) * lsb
+			y = self.conv(data[2], data[3]) * lsb
+			z = self.conv(data[4], data[5]) * lsb
+		else:
+			x = self.conv(data[1], data[0]) * lsb
+			y = self.conv(data[3], data[2]) * lsb
+			z = self.conv(data[5], data[4]) * lsb
+			self.read8(AK8963_ADDRESS,AK8963_ST2) # needed step for reading magnetic data
+		return [x, y, z]
 
 	def conv(self, msb, lsb):
 		value = lsb | (msb << 8)
@@ -189,15 +206,19 @@ class mpu9250(object):
 	@property
 	def allSensors(self):
 
-		[accData, gyroData, magData] = map(lambda y: self.bus.read_i2c_block_data(MPU9250_ADDRESS, y, 6), [ACCEL_DATA, GYRO_DATA, MAGNET_DATA])
+		[data, gyroData, magData] = map(lambda x, y, z: self.read_xyz_universal(x, y, z), [MPU9250_ADDRESS, MPU9250_ADDRESS, AK8963_ADDRESS], [ACCEL_DATA, GYRO_DATA, MAGNET_DATA], [self.alsb, self.glsb, self.mlsb])
+		data.extend(gyroData)
+		data.extend(magData)
 
-		data = [ctypes.c_short(accData[0] << 8 | accData[1]).value,   ctypes.c_short(accData[2] << 8 | accData[3]).value,   ctypes.c_short(accData[4] << 8 | accData[5]).value, 
-				ctypes.c_short(gyroData[0] << 8 | gyroData[1]).value, ctypes.c_short(gyroData[2] << 8 | gyroData[3]).value, ctypes.c_short(gyroData[4] << 8 | gyroData[5]).value,
-				ctypes.c_short(magData[1] << 8 | magData[0]).value,   ctypes.c_short(magData[3] << 8 | magData[2]).value,   ctypes.c_short(magData[5] << 8 | magData[4]).value]
+		#~ [accData, gyroData, magData] = map(lambda x, y: self.bus.read_i2c_block_data(x, y, 6), [MPU9250_ADDRESS, MPU9250_ADDRESS, AK8963_ADDRESS], [ACCEL_DATA, GYRO_DATA, MAGNET_DATA])
+
+		#~ data = [ctypes.c_short(accData[0] << 8 | accData[1]).value,   ctypes.c_short(accData[2] << 8 | accData[3]).value,   ctypes.c_short(accData[4] << 8 | accData[5]).value, 
+				#~ ctypes.c_short(gyroData[0] << 8 | gyroData[1]).value, ctypes.c_short(gyroData[2] << 8 | gyroData[3]).value, ctypes.c_short(gyroData[4] << 8 | gyroData[5]).value,
+				#~ ctypes.c_short(magData[1] << 8 | magData[0]).value,   ctypes.c_short(magData[3] << 8 | magData[2]).value,   ctypes.c_short(magData[5] << 8 | magData[4]).value]
 		
-		lsb = [self.alsb, self.alsb, self.alsb, self.glsb, self.glsb, self.glsb, self.mlsb, self.mlsb, self.mlsb]
+		#~ lsb = [self.alsb, self.alsb, self.alsb, self.glsb, self.glsb, self.glsb, self.mlsb, self.mlsb, self.mlsb]
 
-		data = list(map(operator.mul, data, lsb))
+		#~ data = list(map(operator.mul, data, lsb))
 		
 		#~ accData = self.bus.read_i2c_block_data(MPU9250_ADDRESS, ACCEL_DATA, 6)
 		#~ gyroData = self.bus.read_i2c_block_data(MPU9250_ADDRESS, GYRO_DATA, 6)
@@ -211,9 +232,8 @@ class mpu9250(object):
 		
 		#~ data = [a*b for a,b in zip(lsb, data)]
 		
-		
 		return data
-
+		
 	@property
 	def accel(self):
 		return self.read_xyz(MPU9250_ADDRESS, ACCEL_DATA, self.alsb)

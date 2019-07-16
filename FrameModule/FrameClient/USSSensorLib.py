@@ -13,7 +13,7 @@ import time, threading
 import numpy as np
 import os, sys
 
-from multiprocessing import Queue
+from multiprocessing import Process, Queue
 
 # LOCALLY IMPORTED LIBRARIES
 
@@ -75,11 +75,16 @@ class ClProximitySensorDAQ:
 			pulse_start = time.time()              #Time of the last  LOW pulse
 
 		while GPIO.input(self.ECHO)==1:               #Check whether Echo is HIGH
-			pulse_end = time.time()                #Time of the last HIGH pulse 
+			#~ pulse_end = time.time()                #Time of the last HIGH pulse 
+			pulse_duration = time.time() - pulse_start
+			if pulse_duration > 0.05:
+				break
 
-		distance = round((pulse_end-pulse_start)*17150, 2)            #Round to two decimal points
+		#~ distance = round((pulse_end-pulse_start)*17150, 2)            #Round to two decimal points
+		distance = round((pulse_duration)*17150, 2)            #Round to two decimal points
 
-		if distance > 0 and distance < 800000:     #Is distance within range
+
+		if distance > 20 and distance < 800:     #Is distance within range
 			#print "Distance:",distance - 0.5,"cm"  #Distance with calibration
 			self.distance = distance
 			
@@ -91,8 +96,12 @@ if __name__ == "__main__":
 	dummyQueue = Queue()
 	dummyMarker = Queue()
 	
-	sensor = ClProximitySensorDAQ(dummyQueue, dummyMarker)
-	sensor.fnRun(200)
+	frequency = 200
+	
+	instSensor = ClProximitySensorDAQ(dummyQueue, dummyMarker)
+	
+	PUSS = Process(target=instSensor.fnRun, args = (frequency, ))
+	PUSS.start()
 	
 	timeStamp = []
 	
@@ -104,7 +113,7 @@ if __name__ == "__main__":
 		bufferUSS = dummyQueue.get()
 		counter +=1
 		timeStamp.append(bufferUSS[1])
-		if counter[0] > 50:
+		if counter > 50:
 			counter = 0
 			print('USS Frequency: {}'.format(50/(timeStamp[-1]-timeStamp[-51])))
 	
