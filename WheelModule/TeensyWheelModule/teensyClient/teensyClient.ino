@@ -20,6 +20,7 @@
 int intPin = 12;                 // This can be changed, 2 and 3 are the Arduinos ext int pins
 
 // Variables
+uint32_t timeCount;              // Stores 32bit time value for transmission 
 int16_t accelCount[3];           // Stores the 16-bit signed accelerometer sensor output
 float ax, ay, az;                // Stores the real accel value in g's
 int16_t gyroCount[3];            // Stores the 16-bit signed gyro sensor output
@@ -29,11 +30,11 @@ int16_t tempCount;               // Stores the internal chip temperature sensor 
 float temperature;               // Scaled temperature in degrees Celsius
 float SelfTest[6];               // Gyro and accelerometer self-test sensor output
 uint32_t count = 0;              // Used to control display output rate
+uint32_t timeFreq = 0;              // Used to calculate display output rate
 float aRes, gRes;                // scale resolutions per LSB for the sensors
 MPU6050lib mpu;
 
 //**** Communication Definitions ****//
-
 
 #define bluetooth Serial1
 /* Sending msg Buffer.*/
@@ -47,14 +48,14 @@ wheelUnit _msg = wheelUnit_init_zero; // Initialize wheelUnit struct
 pbSensorMsgGenerator pbMsgGenerator;
 COBS cobs;
 
-Chrono readAndSend;
+Chrono readAndSend(Chrono::MICROS);
 
 PacketSerial cobsBTSerial;//(0, nullptr,bluetooth, nullptr);
 
 void setup() {
   // Initialize serial and bluetooth communication 
   // IMU Setup
-  Serial.begin(9600);
+  Serial.begin(230400);
 
   Wire.begin();
   
@@ -113,25 +114,35 @@ void setup() {
     while(1) ; // Loop forever if communication doesn't happen
    }
 
+   timeFreq = millis();
+
   }
 
-  bluetooth.begin(115200); //rx1 and tx1 = pins 0 and 1 on Teensy
+  aRes=mpu.getAres();
+  gRes=mpu.getGres();
+
+  bluetooth.begin(230400); //rx1 and tx1 = pins 0 and 1 on Teensy
   cobsBTSerial.begin(&bluetooth);
   delay(200);
 }
 
+//void loop() {
+//  sendATCmd();
+//}
+
 
 void loop() {
 
-  if (readAndSend.hasPassed(5)){
+  if (readAndSend.hasPassed(3000)){
     readAndSend.restart();
+    timeCount = millis();
+    
   // Acquire new acceleration and gyroscopic data 
 
   // If data ready bit set, all data registers have new data
     if(mpu.readByte(MPU6050_ADDRESS, INT_STATUS) & 0x01) {  // check if data ready interrupt
 
       mpu.readAccelData(accelCount);  // Read the x/y/z adc values
-      aRes=mpu.getAres();
       
       // Now we'll calculate the accleration value into actual g's
       ax = (float)accelCount[0]*aRes - accelBias[0];  // get actual g value, this depends on scale being set
@@ -139,47 +150,51 @@ void loop() {
       az = (float)accelCount[2]*aRes - accelBias[2];  
      
       mpu.readGyroData(gyroCount);  // Read the x/y/z adc values
-      gRes=mpu.getGres();
    
       // Calculate the gyro value into actual degrees per second
       gx = (float)gyroCount[0]*gRes - gyroBias[0];  // get actual gyro value, this depends on scale being set
       gy = (float)gyroCount[1]*gRes - gyroBias[1];  
       gz = (float)gyroCount[2]*gRes - gyroBias[2];   
   
-      tempCount = mpu.readTempData();  // Read the x/y/z adc values
-      temperature = ((float) tempCount) / 340. + 36.53; // Temperature in degrees Centigrade
+//      tempCount = mpu.readTempData();  // Read the x/y/z adc values
+//      temperature = ((float) tempCount) / 340. + 36.53; // Temperature in degrees Centigrade
     }  
-     
-    uint32_t deltat = millis() - count;
-    if(deltat > 500) {
+//
+//    count += 1;
+//    
+//    if(count > 500) {
  
-      // Print acceleration values in milligs!
-      Serial.print("X-acceleration: "); Serial.print(1000*ax); Serial.print(" mg "); 
-      Serial.print("Y-acceleration: "); Serial.print(1000*ay); Serial.print(" mg "); 
-      Serial.print("Z-acceleration: "); Serial.print(1000*az); Serial.println(" mg"); 
-   
-      // Print gyro values in degree/sec
-      Serial.print("X-gyro rate: "); Serial.print(gx, 1); Serial.print(" degrees/sec "); 
-      Serial.print("Y-gyro rate: "); Serial.print(gy, 1); Serial.print(" degrees/sec "); 
-      Serial.print("Z-gyro rate: "); Serial.print(gz, 1); Serial.println(" degrees/sec"); 
-      
-//      // Print temperature in degrees Centigrade      
-//      Serial.print("Temperature is ");  Serial.print(temperature, 2);  Serial.println(" degrees C"); // Print T values to tenths of s degree C
-//      Serial.println("");
-          
-      count = millis();
-    }
+//      // Print acceleration values in milligs!
+////      Serial.print("X-acceleration: "); Serial.print(1000*ax); Serial.print(" mg "); 
+////      Serial.print("Y-acceleration: "); Serial.print(1000*ay); Serial.print(" mg "); 
+////      Serial.print("Z-acceleration: "); Serial.print(1000*az); Serial.println(" mg"); 
+//   
+//      // Print gyro values in degree/sec
+////      Serial.print("X-gyro rate: "); Serial.print(gx, 1); Serial.print(" degrees/sec "); 
+////      Serial.print("Y-gyro rate: "); Serial.print(gy, 1); Serial.print(" degrees/sec "); 
+////      Serial.print("Z-gyro rate: "); Serial.print(gz, 1); Serial.println(" degrees/sec"); 
+//
+//      // Print frequency
+//      Serial.print("Frequency: "); Serial.print(500000.0/(millis() - timeFreq)); Serial.print(" Hz"); 
+//      
+////      // Print temperature in degrees Centigrade      
+////      Serial.print("Temperature is ");  Serial.print(temperature, 2);  Serial.println(" degrees C"); // Print T values to tenths of s degree C
+////      Serial.println("");
+//
+//      timeFreq = millis();
+//      count = 0;
+//    }
   
       
-    //*****Send message over BT*****//
+//    //*****Send message over BT*****//
     // Update the value of IMU sensor.
-    pbMsgGenerator.addIMUData(millis(), ax, ay, az, gx, gy, gz);
+    pbMsgGenerator.addIMUData(timeCount, ax, ay, az, gx, gy, gz);
 
     // Get length of message
     int lengthf = pbMsgGenerator.generatePBMessage();
 
     // Compile into cobs packet and send
-    sendMsgCobs(pbMsgGenerator.getPBMessage(), lengthf);
+    sendMsgCobsNoLen(pbMsgGenerator.getPBMessage(), lengthf);
   }
 }
 
@@ -204,7 +219,7 @@ void sendATCmd(){
    if (cmd!=""){
     bluetooth.write("AT+" );
 //    bluetooth.write(cmd.c_str());
-    bluetooth.write("UART=115200,0,0");
+    bluetooth.write("UART=230400,0,0");
 //    bluetooth.write("UART?");
     bluetooth.write("\r\n"); 
     Serial.println("SendingMSG" );
@@ -311,5 +326,20 @@ void sendMsgCobs(uint8_t* msg, int msgLen){
     size_t cobsMsgLength = cobs.encode(_msgLenBuffer, msgLen+4, cobsBuffer);
 
   cobsBTSerial.send(_msgLenBuffer, msgLen+4);
+  
+}
+
+void sendMsgCobsNoLen(uint8_t* msg, int msgLen){
+  // Sends message in cobs format
+    
+  /* Convert message to COBS*/
+  size_t cobsBufferLength = cobs.getEncodedBufferSize(msgLen);
+  //Buffer to store cobs encoded message.
+  uint8_t cobsBuffer[cobsBufferLength]; 
+  size_t cobsMsgLength = cobs.encode(msg, msgLen, cobsBuffer);
+  
+//  Serial.write(msg, msgLen);
+
+  cobsBTSerial.send(msg, msgLen);
   
 }

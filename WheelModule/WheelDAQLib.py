@@ -80,7 +80,6 @@ class ClWheelDataParsing:
         self.path = dataSource['Path'] # Save path name
 
         self.refTime = 0
-        self.timeOffset = 0
 
         # Create class storage variables
         self.timeStamp = []
@@ -101,22 +100,34 @@ class ClWheelDataParsing:
 
         self.IMU = ClBluetoothConnect(self.address)  # Creates bluetooth connection instance with wheel module
 
-        freqCount = 0  # Frequency counter
+        freqCount = -1  # Frequency counter
 
         status = 'Active.' # Set marker to active
 
         self.IMU.fnCOBSIntialClear() # Wait until message received starts at the correct location
 
+        receivedCalPy = []
+        receivedCalWheel = []
+
         # Cycle through data retrieval to clear out buffered messages
+        for i in range(2000):
+            if status != 'Disconnected.':
+                status = self.IMU.fnRetieveIMUMessage()
+                self.fnReceiveData(self.IMU.cobsMessage, 'startup')
+
         for i in range(1000):
             if status != 'Disconnected.':
                 status = self.IMU.fnRetieveIMUMessage()
-                self.fnReceiveData(self.IMU.cobsMessage, 'wait')
+                receivedCalWheel.append(self.fnReceiveData(self.IMU.cobsMessage, 'wait'))
+                receivedCalPy.append(time.time())
+
+        # Sets the timing variables
+        self.refTime = np.mean(np.subtract(receivedCalPy, [x/1000 for x in receivedCalWheel]))
 
         # Initializes response for time synchronization
-        if status != 'Disconnected.':
-            status = self.IMU.fnRetieveIMUMessage()
-            self.fnReceiveData(self.IMU.cobsMessage, 'init')
+        # if status != 'Disconnected.':
+        #     status = self.IMU.fnRetieveIMUMessage()
+        #     self.fnReceiveData(self.IMU.cobsMessage, 'init')
 
         # Cycle through data retrieval until bluetooth disconnects or terminate signal received
         while status != 'Disconnected.' and self.runStatus.empty():
@@ -150,23 +161,18 @@ class ClWheelDataParsing:
             # dataSize = struct.unpack("<L", dataSizeArray)[0]
 
             # Pass msg to imuMsg to parse into float values stored in imuMsg instance
-            data = msg[4:]
+            data = msg[:]
             wheelMsgBT = carisPAWBuffers.wheelUnit()
             wheelMsgBT.ParseFromString(data)
 
-            # Initialize time offset and reference time for time synchronization
-            if state == 'init':
-                self.refTime = time.time()
-                self.timeOffset = wheelMsgBT.time_stamp / 1000
-                self.timeReceived.append(time.time())
-                # Append data to display data and class variables
-                self.fnStoreData(wheelMsgBT)
-
             # Record data into appropriate class lists and display data array
-            elif state == 'stream':
+            if state == 'stream':
                 self.timeReceived.append(time.time())
                 self.fnStoreData(wheelMsgBT)
 
+            # Return time stamp for calibration
+            elif state == 'wait':
+                return wheelMsgBT.time_stamp
         # Returns exceptions as e to avoid code crash but still allow for debugging
         except Exception as e:
             print(e)
@@ -179,7 +185,7 @@ class ClWheelDataParsing:
         """
 
         # Sets adjusted timestamp
-        timeStamp = self.refTime + wheelDataPB.time_stamp / 1000 - self.timeOffset
+        timeStamp = self.refTime + wheelDataPB.time_stamp / 1000
 
         # Sends received data to queue
         self.Queue.put([timeStamp, wheelDataPB.acc_x * 9.8065, wheelDataPB.acc_y * 9.8065, wheelDataPB.acc_z * 9.8065,
@@ -211,9 +217,11 @@ class ClWheelDataParsing:
                      'GYROSCOPE Y (rad/s)': np.array(self.yGyro),
                      'GYROSCOPE Z (rad/s)': np.array(self.zGyro),
                      'Time since start in ms ': np.array(self.timeStamp) - self.timeStamp[0],
-                     'YYYY-MO-DD HH-MI-SS_SSS': timeString})
+                     'YYYY-MO-DD HH-MI-SS_SSS': timeString,
+                     'Time Received': self.timeReceived,
+                     'Timestamp': self.timeStamp})
 
-        IMUData.to_csv(self.path, index = False)
+        IMUData.to_csv(self.path + '.csv', index = False)
 
 
 class ClBluetoothConnect:
