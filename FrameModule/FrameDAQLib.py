@@ -136,7 +136,7 @@ class ClFrameDataParsing:
             self.FrameUnit.fnCOBSIntialClear() # Wait until message received starts at the correct location
 
         # Cycle through data retrieval to clear out buffered messages
-        for i in range(1000):
+        for i in range(2000):
             if status != 'Disconnected.':
                 status = self.FrameUnit.fnRetievePiMessage()
                 self.fnReceiveData(self.FrameUnit.cobsMessage, state = 'startup')
@@ -173,8 +173,14 @@ class ClFrameDataParsing:
                 sensorCount[2] = 0
         self.fnSaveData()
 
+        while not self.Queue.empty():
+            self.Queue.get()
+
         # Close socket connection
         self.FrameUnit.fnShutDown()
+
+        while not self.Queue.empty():
+            self.Queue.get()
 
     def fnReceiveData(self, msg, state = 'stream'):
         """
@@ -317,7 +323,7 @@ class ClFrameDataParsing:
                                     'MagY': self.yMag9250,
                                     'MagZ': self.zMag9250}
                                    )
-            IMUData.to_csv(self.path + '.csv', index=False)
+            IMUData.to_csv(self.path + '9250.csv', index=False)
 
         if self.timeStamp6050:
             timeString = [datetime.datetime.fromtimestamp(utcTime).strftime('%Y-%m-%d %H:%M:%S:%f')[:-3] for utcTime in
@@ -362,6 +368,7 @@ class ClWirelessServer:
 
         if self.protocol == 'TCP':
             self.TCPSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.TCPSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
             print ("{}: Began connection".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
 
@@ -408,6 +415,7 @@ class ClWirelessServer:
 
         print("Disconnecting server.")
         self.socket.close()
+        print("Disconnected server.")
 
     def fnReceive(self, MSGLEN):
         """

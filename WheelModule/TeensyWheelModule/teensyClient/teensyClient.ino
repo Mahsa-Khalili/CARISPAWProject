@@ -90,7 +90,7 @@ void setup() {
     if(SelfTest[0] < 1.0f && SelfTest[1] < 1.0f && SelfTest[2] < 1.0f && SelfTest[3] < 1.0f && SelfTest[4] < 1.0f && SelfTest[5] < 1.0f) {
     Serial.println("Pass Selftest!");  
 
-    mpu.calibrateMPU6050(gyroBias, accelBias); // Calibrate gyro and accelerometers, load biases in bias registers  
+//    mpu.calibrateMPU6050v2(gyroBias, accelBias); // Calibrate gyro and accelerometers, load biases in bias registers  
 
     Serial.println("MPU6050 bias");
     Serial.println(" x\t  y\t  z  ");
@@ -121,6 +121,40 @@ void setup() {
   aRes=mpu.getAres();
   gRes=mpu.getGres();
 
+//  Serial.print(1.0/aRes); Serial.print( "\n");
+//  Serial.print(1.0/gRes); Serial.print("\n");
+
+  int calNum = 5000;
+
+  for(int i = 0; i < calNum; i++) {
+
+    if (readAndSend.hasPassed(1000)){
+      readAndSend.restart();
+  
+      mpu.readAccelData(accelCount);
+  
+      accelBias[0] += (float)accelCount[0]*aRes / calNum;
+      accelBias[1] += (float)accelCount[1]*aRes / calNum;
+      accelBias[2] += (float)accelCount[2]*aRes / calNum;
+  
+      mpu.readGyroData(gyroCount);
+  
+      gyroBias[0] += (float)gyroCount[0]*gRes / calNum;
+      gyroBias[1] += (float)gyroCount[1]*gRes / calNum;
+      gyroBias[2] += (float)gyroCount[2]*gRes / calNum;
+    }
+  }
+
+  if (accelBias[1] > 0) {
+    accelBias[1] -= 1;
+  }
+  else{
+    accelBias[1] += 1;
+  }
+
+//  Serial.print(accelBias[0]);  Serial.print("\n");Serial.print(accelBias[1]);  Serial.print("\n");Serial.print(accelBias[2]); Serial.print("\n");
+//  Serial.print(gyroBias[0]);  Serial.print("\n");Serial.print(gyroBias[1]);  Serial.print("\n");Serial.print(gyroBias[2]);  Serial.print("\n");
+//  Serial.print(mpu.readByte(MPU6050_ADDRESS, ACCEL_CONFIG));
   bluetooth.begin(230400); //rx1 and tx1 = pins 0 and 1 on Teensy
   cobsBTSerial.begin(&bluetooth);
   delay(200);

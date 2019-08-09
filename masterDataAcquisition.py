@@ -10,7 +10,7 @@ Purpose:        This Python code utilizes various custom data collection librari
 # IMPORTED LIBRARIES
 
 import os
-import datetime
+import datetime, time
 import sys
 
 import numpy as np
@@ -67,15 +67,20 @@ RaspberryPi = {'Name': 'Frame', 'Address': 'B8:27:EB:A3:ED:6F', 'Host': '', 'Por
                'Placement': 'Middle', 'Device': 'Module',
                'Path': '',
                'ProximityPath': '',
-               'DisplayData-IMU_6': np.zeros((10, 1200)),
-               'DisplayData-IMU_9': np.zeros((13, 120)),
-               'DisplayData-USS': np.zeros((2,250)),
+               'DisplayData-IMU_6': np.zeros((10, 1800)),
+               'DisplayData-IMU_9': np.zeros((13, 600)),
+               'DisplayData-USS': np.zeros((2,275)),
                'Queue': Queue(),
                'RunMarker': Queue()
                }
 
 Synthesis = {'Name': 'Synthesis', 'DisplayData': np.zeros((4, 2000)), 'ProximityPath': '',
-             'DataStorage': {'timeStamp': [],'xVelocity': [],  'xAcceleration': [], 'zAngular': []}}
+             'DataStorage': {'timeStamp': [],'xVelocity': [],  'xAcceleration': [], 'zAngular': [],
+             'L. xAcceleration': [], 'L. yAcceleration': [], 'L. zAcceleration': [],
+             'L. xAngular': [], 'L. yAngular': [], 'L. zAngular': [], 'L. xyAcceleration': [],
+             'R. xAcceleration': [], 'R. yAcceleration': [], 'R. zAcceleration': [],
+             'R. xAngular': [], 'R. yAngular': [], 'R. zAngular': [], 'R. xyAcceleration': []}
+             }
 
 LeftPhone = {'Name': 'Left Phone', 'Port': 5555, 'Placement': 'Left', 'Device': 'Phone',
             'AccPath': os.path.join('IMU Data', '{} LeftphoneAcc.csv'.format(
@@ -180,8 +185,11 @@ class ClUIWrapper():
         # Send end signal to process and wait for processes to join
         for dataSource in self.sources:
             dataSource['RunMarker'].put(False)
+
         for dataSource in self.sources:
+            print("Joining...")
             processes[dataSource['Name']].join()
+            print("Joined.")
 
     def fnSaveSynthesis(self):
         """
@@ -197,8 +205,25 @@ class ClUIWrapper():
             IMUData = pd.DataFrame({'ACCELEROMETER X (m/s²)': np.array(Synthesis['DataStorage']['xAcceleration']),
                                     'VELOCITY X (m/s)': np.array(Synthesis['DataStorage']['xVelocity']),
                                     'GYROSCOPE Z (rad/s)': np.array(Synthesis['DataStorage']['zAngular']),
-                                    'Time since start in ms ': np.array(Synthesis['DataStorage']['timeStamp']) - Synthesis['DataStorage']['timeStamp'][0],
-                                    'YYYY-MO-DD HH-MI-SS_SSS': timeString
+                                    'Time since start in ms ': np.array(Synthesis['DataStorage']['timeStamp']) -
+                                                               Synthesis['DataStorage']['timeStamp'][0],
+                                    'YYYY-MO-DD HH-MI-SS_SSS': timeString,
+                                    'L ACCELEROMETER X (m/s²)': np.array(Synthesis['DataStorage']['L. xAcceleration']),
+                                    'L ACCELEROMETER Y (m/s²)': np.array(Synthesis['DataStorage']['L. yAcceleration']),
+                                    'L ACCELEROMETER Z (m/s²)': np.array(Synthesis['DataStorage']['L. zAcceleration']),
+                                    'L ACCELEROMETER XY (m/s²)': np.array(
+                                        Synthesis['DataStorage']['L. xyAcceleration']),
+                                    'L GYROSCOPE X (rad/s)': np.array(Synthesis['DataStorage']['L. xAngular']),
+                                    'L GYROSCOPE Y (rad/s)': np.array(Synthesis['DataStorage']['L. yAngular']),
+                                    'L GYROSCOPE Z (rad/s)': np.array(Synthesis['DataStorage']['L. zAngular']),
+                                    'R ACCELEROMETER X (m/s²)': np.array(Synthesis['DataStorage']['R. xAcceleration']),
+                                    'R ACCELEROMETER Y (m/s²)': np.array(Synthesis['DataStorage']['R. yAcceleration']),
+                                    'R ACCELEROMETER Z (m/s²)': np.array(Synthesis['DataStorage']['R. zAcceleration']),
+                                    'R ACCELEROMETER XY (m/s²)': np.array(
+                                        Synthesis['DataStorage']['R. xyAcceleration']),
+                                    'R GYROSCOPE X (rad/s)': np.array(Synthesis['DataStorage']['R. xAngular']),
+                                    'R GYROSCOPE Y (rad/s)': np.array(Synthesis['DataStorage']['R. yAngular']),
+                                    'R GYROSCOPE Z (rad/s)': np.array(Synthesis['DataStorage']['R. zAngular'])
                                     }
                                    )
             IMUData.to_csv(Synthesis['Path'] + '.csv', index=False)
@@ -225,12 +250,12 @@ class ClDisplayDataQT:
         self.plotData = {} # Create dictionary for subplot data
 
         # Set which parameters you want to plot, 3 is a good number for the window size
-        # self.graphSet = ['Heading (deg)', 'Pitch (deg)', 'Roll (deg)']
+        self.graphSet = ['Heading (deg)', 'Pitch (deg)', 'Roll (deg)']
         # self.graphSet = ['X Angular Velocity (rad/s)', 'Y Angular Velocity (rad/s)', 'Z Angular Velocity (rad/s)']
         # self.graphSet = ['X Magnetometer', 'Y Magnetometer', 'Z Magnetometer']
-        self.graphSet = ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Acceleration (m/s^2)']
+        # self.graphSet = ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Acceleration (m/s^2)']
         # self.proximity = ['Proximity (cm)']
-        # self.graphSet = ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)']
+        # self.graphSet = ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)',  'Z Angular Velocity (rad/s)']
         self.proximity = []
         # Create plots
         for item in self.graphSet:
@@ -259,7 +284,7 @@ class ClDisplayDataQT:
                 if dataName == 'Frame' and 0 in self.activeSensors:
                     self.plotData[dataName][item + ' 9-Axis'] = self.plot[item].plot(pen=PenColors[i + 3])
                 if (item == 'Z Angular Velocity (rad/s)' or item == 'X Acceleration (m/s^2)'):
-                    self.plotData['Synthesis'][item] = self.plot[item].plot(pen=PenColors[i + 6])
+                                    self.plotData['Synthesis'][item] = self.plot[item].plot(pen=PenColors[i + 6])
 
             for item in self.proximity:
                 self.plotData[dataName][item] = self.plot[item].plot(pen=PenColors[i])
@@ -339,8 +364,41 @@ class ClDisplayDataQT:
                         # store angular velocity
                         Synthesis['DisplayData'][3, -1] = (-Left['DisplayData-IMU_6'][6, self.head[0]] -
                                                             Right['DisplayData-IMU_6'][
-                                                                6, self.head[0]]) * 0.59 / 2 / 0.54
+                                                                6, self.head[0]]) * 0.59 / 2 / 0.52
                         Synthesis['DataStorage']['zAngular'].append(Synthesis['DisplayData'][3, -1])
+
+                        # Stores left and right IMU data, aligned
+
+                        Synthesis['DataStorage']['L. xAcceleration'].append(
+                            (Left['DisplayData-IMU_6'][1, self.head[0]]))
+                        Synthesis['DataStorage']['R. xAcceleration'].append(
+                            (Right['DisplayData-IMU_6'][1, self.head[1]]))
+                        Synthesis['DataStorage']['L. yAcceleration'].append(
+                            (Left['DisplayData-IMU_6'][2, self.head[0]]))
+                        Synthesis['DataStorage']['R. yAcceleration'].append(
+                            (Right['DisplayData-IMU_6'][2, self.head[1]]))
+                        Synthesis['DataStorage']['L. zAcceleration'].append(
+                            (Left['DisplayData-IMU_6'][3, self.head[0]]))
+                        Synthesis['DataStorage']['R. zAcceleration'].append(
+                            (Right['DisplayData-IMU_6'][3, self.head[1]]))
+                        Synthesis['DataStorage']['L. xAngular'].append(
+                            (Left['DisplayData-IMU_6'][4, self.head[0]]))
+                        Synthesis['DataStorage']['R. xAngular'].append(
+                            (Right['DisplayData-IMU_6'][4, self.head[1]]))
+                        Synthesis['DataStorage']['L. yAngular'].append(
+                            (Left['DisplayData-IMU_6'][5, self.head[0]]))
+                        Synthesis['DataStorage']['R. yAngular'].append(
+                            (Right['DisplayData-IMU_6'][5, self.head[1]]))
+                        Synthesis['DataStorage']['L. zAngular'].append(
+                            (Left['DisplayData-IMU_6'][6, self.head[0]]))
+                        Synthesis['DataStorage']['R. zAngular'].append(
+                            (Right['DisplayData-IMU_6'][6, self.head[1]]))
+                        Synthesis['DataStorage']['L. xyAcceleration'].append(
+                            (Left['DisplayData-IMU_6'][1, self.head[0]] ** 2 + Left['DisplayData-IMU_6'][
+                                2, self.head[0]] ** 2) ** 0.5)
+                        Synthesis['DataStorage']['R. xyAcceleration'].append(
+                            (Right['DisplayData-IMU_6'][1, self.head[0]] ** 2 + Right['DisplayData-IMU_6'][
+                                2, self.head[0]] ** 2) ** 0.5)
 
                         # Increment right head index
                         self.head[1] += 1

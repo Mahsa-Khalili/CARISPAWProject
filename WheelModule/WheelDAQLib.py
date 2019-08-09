@@ -90,6 +90,7 @@ class ClWheelDataParsing:
         self.xGyro = []
         self.yGyro = []
         self.zGyro = []
+        self.xyData = []
 
     def fnRun(self):
         """
@@ -199,6 +200,7 @@ class ClWheelDataParsing:
         self.xGyro.append(wheelDataPB.angular_x * math.pi / 180)
         self.yGyro.append(wheelDataPB.angular_y * math.pi / 180)
         self.zGyro.append(wheelDataPB.angular_z * math.pi / 180)
+        self.xyData.append(((wheelDataPB.acc_x * 9.8065) ** 2 + (wheelDataPB.acc_y * 9.8065) ** 2) **0.5)
 
     def fnSaveData(self):
         """
@@ -219,7 +221,9 @@ class ClWheelDataParsing:
                      'Time since start in ms ': np.array(self.timeStamp) - self.timeStamp[0],
                      'YYYY-MO-DD HH-MI-SS_SSS': timeString,
                      'Time Received': self.timeReceived,
-                     'Timestamp': self.timeStamp})
+                     'Timestamp': self.timeStamp,
+                     'ACCELEROMETER XY (m/s²)': self.xyData}
+                               )
 
         IMUData.to_csv(self.path + '.csv', index = False)
 
