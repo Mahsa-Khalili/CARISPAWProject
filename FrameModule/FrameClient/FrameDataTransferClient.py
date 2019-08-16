@@ -43,6 +43,7 @@ from fusion import Fusion
 
 from IMUSensorLib import *
 from USSSensorLib import *
+from PiCamSensorLib import *
 
 # DEFINITIONS
 
@@ -52,7 +53,7 @@ BTAddress = '54:8c:a0:a4:8e:a2'
 
 SENSOR_LIST = ['IMU_9', 'IMU_6', 'USS_DOWN', 'USS_FORW', 'PI_CAM']
 
-ACTIVE_SENSORS = [1]
+ACTIVE_SENSORS = [0, 1]
 
 # CLASSES
 
@@ -64,25 +65,13 @@ class ClTransferClient:
 	def __init__(self, protocol = 'UDP'):
 		"""
 		Purpose:	Initialize various sensors 
-		Passed: 
+		Passed: 	Optionally the communication protocol
 		"""
 		self.protocol = protocol
 		
-		self.dataQueue = Queue()
-		self.runMarker= Queue()
-		
-		self.instDAQLoop = {} 
-		
-		for sensor in ACTIVE_SENSORS:
-			if sensor == 0:
-				self.instDAQLoop[SENSOR_LIST[sensor]] = ClMpu9250DAQ(self.dataQueue, self.runMarker)
-			if sensor == 1:
-				self.instDAQLoop[SENSOR_LIST[sensor]] = ClMpu6050DAQ(self.dataQueue, self.runMarker)
-			if sensor == 2:
-				self.instDAQLoop[SENSOR_LIST[sensor]] = ClProximitySensorDAQ(self.dataQueue, self.runMarker)
-
 		if self.protocol == 'TCP':
 			self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			self.socket.settimeout(10)
 			self.socket.connect((HOST, PORT))
 			print('Connected.')
 			
@@ -96,6 +85,21 @@ class ClTransferClient:
 			self.sock.bind(('',3))
 			self.sock.listen(1)
 			self.socket, self.address = self.sock.accept()
+		
+		self.dataQueue = Queue()
+		self.runMarker= Queue()
+		
+		self.instDAQLoop = {} 
+		
+		for sensor in ACTIVE_SENSORS:
+			if sensor == 0:
+				self.instDAQLoop[SENSOR_LIST[sensor]] = ClMpu9250DAQ(self.dataQueue, self.runMarker)
+			elif sensor == 1:
+				self.instDAQLoop[SENSOR_LIST[sensor]] = ClMpu6050DAQ(self.dataQueue, self.runMarker)
+			elif sensor == 2:
+				self.instDAQLoop[SENSOR_LIST[sensor]] = ClProximitySensorDAQ(self.dataQueue, self.runMarker)
+			elif sensor == 4:
+				self.instDAQLoop[SENSOR_LIST[sensor]] = ClPiCameraDAQ(self.dataQueue, self.runMarker)
 			
 		self.socket.send(pkl.dumps(ACTIVE_SENSORS))
 
@@ -189,9 +193,12 @@ if __name__=="__main__":
 			connectedStatus = True
 			instTransferClient.fnStart(300)
 		except Exception as e:
+			time.sleep(1)
 			if connectedStatus:
 				instTransferClient.runMarker.put(False)
 				instTransferClient.fnShutDown()
+				instTransferClient.runMarker.close()
+				instTransferClient.dataQueue.close()
 				connectedStatus = False
 			print(e)
 

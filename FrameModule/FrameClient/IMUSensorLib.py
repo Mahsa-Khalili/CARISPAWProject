@@ -34,7 +34,7 @@ from fusion import Fusion
 
 #CLASSES
 
-class ClMpu6050DAQ:
+class ClMpu6050DAQ(threading.Timer):
 	
 	def __init__(self, dataQueue, runMarker):
 		"""
@@ -56,11 +56,12 @@ class ClMpu6050DAQ:
 		#~ acc = np.multiply(self.sensor.accel - self.offset[0:3], 9.8065)
 		#~ gyro = self.sensor.gyro - self.offset[3:6]
 		#~ self.dataQueue.put_nowait(['IMU_6', time.time(), acc[0], acc[1], acc[2], gyro[0], gyro[1], gyro[2]])
-		
+		timeRecorded = time.time()
 		data = list(map(operator.sub,self.sensor.allSensors, self.offset[0:6]))
 		data[0:3] = [a*b for a,b in zip(data[0:3], [9.8065]*3)]
-		self.dataQueue.put(['IMU_6', time.time(), data[0], -data[1], -data[2], data[3], -data[4], -data[5]])
-		
+		self.dataQueue.put(['IMU_6', timeRecorded, data[0], -data[1], -data[2], data[3], -data[4], -data[5]])
+
+	
 	def fnRun(self, frequency):
 		"""
 		Purpose:	Script that runs until termination message is sent to queue.
@@ -72,10 +73,24 @@ class ClMpu6050DAQ:
 		
 		waitTime = 1/frequency
 		
+		self.trigger = threading.Event()
+		self.trigger.set()
+		
+		timerRepeat = threading.Thread(target=self.fnRunThread, args = (waitTime, ) )
+		timerRepeat.start()
+		
 		while self.runMarker.empty():
-			
+		
+			self.trigger.wait()
+			self.trigger.clear()
 			self.fnRetrieveData()
-			time.sleep(waitTime - (time.time() % waitTime))
+		
+		timerRepeat.join()
+
+	def fnRunThread(self, waitTime):
+		while self.runMarker.empty():
+			time.sleep(waitTime - (time.perf_counter() % waitTime))
+			self.trigger.set()
 
 	def fnCalibrate(self):
 		
@@ -116,10 +131,12 @@ class ClMpu9250DAQ:
 		#~ mag = [0, 0, 0]
 		#~ mag = self.sensor.mag
 		
+		timeRecorded = time.time()
+		
 		data = list(map(operator.sub, self.sensor.allSensors, self.offset[0:9]))
 		#~ data = self.loop.run_until_complete(self.sensor.i2c_allSensors()) - self.offset[0:9]
 		data[0:3] = [a*9.8065 for a in data[0:3]]
-		self.dataQueue.put(['IMU_9', time.time(), -data[0], data[1], -data[2], -data[3], data[4], -data[5], -data[7], data[6], data[8]])
+		self.dataQueue.put(['IMU_9', timeRecorded, -data[0], data[1], -data[2], -data[3], data[4], -data[5], -data[7], data[6], data[8]])
 		
 		#~ mag = [0, 0, 0]
 		#~ ang = [self.Fusion.heading, self.Fusion.pitch, math.fmod((self.Fusion.roll + 180)  + 180 * 3, 2* 180) -180]
@@ -134,19 +151,30 @@ class ClMpu9250DAQ:
 		self.offset = pkl.load(open('IMU9250Offset.pkl', 'rb'))
 		timeStartB = time.time()
 		
-		#~ timer = threading.Timer(0.005, self.fnRetrieveData)
-		#~ timer.start()
+		waitTime = 3/frequency
+
+		self.trigger = threading.Event()
+		self.trigger.set()
 		
-		#~ while(self.runMarker.empty()):
-			#~ pass
+		timerRepeat = threading.Thread(target=self.fnRunThread, args = (waitTime, ) )
+		timerRepeat.start()
 		
-		#~ timer.cancel()
+		while self.runMarker.empty():
 		
-		waitTime = 10/frequency
-		
-		while (self.runMarker.empty()):
+			self.trigger.wait()
+			self.trigger.clear()
 			self.fnRetrieveData()
-			time.sleep(waitTime - (time.perf_counter() % (waitTime)))
+		
+		timerRepeat.join()
+		
+		#~ while (self.runMarker.empty()):
+			#~ self.fnRetrieveData()
+			#~ time.sleep(waitTime - (time.perf_counter() % (waitTime)))
+
+	def fnRunThread(self, waitTime):
+		while self.runMarker.empty():
+			time.sleep(waitTime - (time.perf_counter() % waitTime))
+			self.trigger.set()
 	
 	def fnCalibrate(self):
 		
@@ -195,27 +223,13 @@ if __name__ == "__main__":
 	P6050 = Process(target=instMpu6050DAQ.fnRun, args = (frequency, ))
 	P9250 = Process(target=instMpu9250DAQ.fnRun, args = (frequency, ))
 	P6050.start()
-	#~ P9250.start()
+	P9250.start()
 	
 	counter = [ -20, -20]
 	timeStamp9250 = []
 	timeStamp6050 = []
 
 	timeStart = time.time()
-	
-	#~ while(time.time() < timeStart + 100):
-		#~ bufferIMU = dataQueue9250.get()
-		#~ counter[0] +=1
-		#~ timeStamp9250.append(bufferIMU[1])
-		#~ if counter[0] > 500:
-			#~ counter[0] = 0
-			#~ print('IMU_9 Frequency: {}'.format(500/(timeStamp9250[-1]-timeStamp9250[-501])))
-		#~ bufferIMU = dataQueue6050.get()
-		#~ counter[1] +=1
-		#~ timeStamp6050.append(bufferIMU[1])
-		#~ if counter[1] > 500:
-			#~ counter[1] = 0
-			#~ print('IMU_6 Frequency: {}'.format(500/(timeStamp6050[-1]-timeStamp6050[-501])))
 	
 	while(time.time() < timeStart + 100):
 		bufferIMU = dataQueue.get()
