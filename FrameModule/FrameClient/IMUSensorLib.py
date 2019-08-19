@@ -35,6 +35,9 @@ from fusion import Fusion
 #CLASSES
 
 class ClMpu6050DAQ(threading.Timer):
+	"""
+	Class for reading 6-axis IMU data.
+	"""
 	
 	def __init__(self, dataQueue, runMarker):
 		"""
@@ -65,54 +68,80 @@ class ClMpu6050DAQ(threading.Timer):
 	def fnRun(self, frequency):
 		"""
 		Purpose:	Script that runs until termination message is sent to queue.
-		Passed:		Frequency of 
+		Passed:		Frequency of data capture
 		"""
 		
+		# Reads saved offset values
 		self.offset = pkl.load(open('IMU6050Offset.pkl', 'rb'))
-		timeStart = time.time()
 		
+		# Sets time interval between signal capture	
 		waitTime = 1/frequency
 		
+		# Sets trigger so code runs
 		self.trigger = threading.Event()
 		self.trigger.set()
 		
+		# Create repeating timer that ensures code runs at specified intervals
 		timerRepeat = threading.Thread(target=self.fnRunThread, args = (waitTime, ) )
 		timerRepeat.start()
 		
+		# Continuously reruns code and clears the trigger
 		while self.runMarker.empty():
 		
 			self.trigger.wait()
 			self.trigger.clear()
 			self.fnRetrieveData()
 		
+		# Joins thread
 		timerRepeat.join()
 
 	def fnRunThread(self, waitTime):
+		"""
+		Purpose:	Sets the trigger after waiting for specified interval
+		Passed:		Interval of time to wait
+		"""
+		
 		while self.runMarker.empty():
 			time.sleep(waitTime - (time.perf_counter() % waitTime))
 			self.trigger.set()
 
 	def fnCalibrate(self):
+		"""
+		Purpose:	Collects 1000 samples for calibration (offset)
+		Passed:		None
+		"""
 		
-		noCalArray = np.zeros((3, 1000))
+		# Intialize array
+		calArray = np.zeros((6, 1000))
 		
-		calArray = np.zeros((9, 1000))
+		# Record signal
 		for i in range(1000):
 			calArray[0:6, i] = (self.sensor.accel + self.sensor.gyro)
 		
+		# Find average offset
 		self.offset[0:6] = np.mean(calArray[0:6], axis=1)
+		
+		# Ensure gravity reads 1 g
 		if self.offset[2] > 0:
 			self.offset[2] = self.offset[2]  - 1 
 		else:
 			self.offset[2] = self.offset[2]  + 1
+		
+		# Print offset for validation
 		print(self.offset)
 		
+		# Dump results to pickle file
 		pkl.dump(self.offset, open('IMU6050Offset.pkl', 'wb'))
 
 class ClMpu9250DAQ:
-	
+	"""
+	Class for reading 9-axis IMU data.
+	"""	
 	def __init__(self, dataQueue, runMarker):
-		
+		"""
+		Purpose:	Initialize 9-axis IMU.
+		Passed:		Queue for data transfer between processes.
+		"""		
 		
 		self.Fusion = Fusion(timeDiff)
 		self.offset = np.zeros(12)
@@ -122,7 +151,11 @@ class ClMpu9250DAQ:
 		self.sensor = mpu9250(self.loop) 
 	
 	def fnRetrieveData(self):
-		
+		"""
+		Purpose:	Send data to main data queue for transfer with timestamp and sensor ID.
+		Passed:		None
+		"""
+				
 		#~ self.Fusion.update(fixImu(self.sensor.accel - self.offset[0:3]), fixImu(self.sensor.gyro - self.offset[3:6]), fixMag(np.multiply((self.sensor.mag - self.offset[6:9]), self.offset[9:12])), datetime.datetime.now())
 		
 		#~ acc = np.multiply(self.sensor.accel - self.offset[0:3], 9.8065)
@@ -147,61 +180,79 @@ class ClMpu9250DAQ:
 			
 	
 	def fnRun(self, frequency):
+		"""
+		Purpose:	Script that runs until termination message is sent to queue.
+		Passed:		Frequency of data capture
+		"""
 		
+		# Reads saved offset values	
 		self.offset = pkl.load(open('IMU9250Offset.pkl', 'rb'))
 		timeStartB = time.time()
 		
+		# Sets time interval between signal capture	
 		waitTime = 3/frequency
 
+		# Sets trigger so code runs
 		self.trigger = threading.Event()
 		self.trigger.set()
 		
+		# Create repeating timer that ensures code runs at specified intervals
 		timerRepeat = threading.Thread(target=self.fnRunThread, args = (waitTime, ) )
 		timerRepeat.start()
 		
+		# Continuously reruns code and clears the trigger
 		while self.runMarker.empty():
 		
 			self.trigger.wait()
 			self.trigger.clear()
 			self.fnRetrieveData()
 		
+		# Joins thread
 		timerRepeat.join()
-		
-		#~ while (self.runMarker.empty()):
-			#~ self.fnRetrieveData()
-			#~ time.sleep(waitTime - (time.perf_counter() % (waitTime)))
 
 	def fnRunThread(self, waitTime):
+		"""
+		Purpose:	Sets the trigger after waiting for specified interval
+		Passed:		Interval of time to wait
+		"""
+
 		while self.runMarker.empty():
 			time.sleep(waitTime - (time.perf_counter() % waitTime))
 			self.trigger.set()
 	
 	def fnCalibrate(self):
+		"""
+		Purpose:	Collects 1000 samples for calibration (offset)
+		Passed:		None
+		"""
 		
-		noCalArray = np.zeros((3, 1000))
-		
+		# Intialize array
 		calArray = np.zeros((9, 1000))
+		
+		# Record signal
 		for i in range(1000):
 			calArray[0:6, i] = (self.sensor.accel + self.sensor.gyro)
 		
+		# Find average offset
 		self.offset[0:6] = np.mean(calArray[0:6], axis=1)
+		
+		# Ensure gravity reads 1 g
 		if self.offset[2] > 0:
 			self.offset[2] = self.offset[2]  - 1 
 		else:
 			self.offset[2] = self.offset[2]  + 1
 		
-		#~ self.offset[6:12] = [28.4884, 29.1631, -1.3495, 1.1899, 0.9215, 0.9308]
-		#~ self.offset[6:12] = [25.5646, 28.8632, 0.7497, 1.1249, 0.9463, 0.9485]
-		
-		
+		# Print offset for validation
 		print(self.offset)
 		
+		# Dump results to pickle file
 		pkl.dump(self.offset, open('IMU9250Offset.pkl', 'wb'))
-		
-		pass
 
 
 def timeDiff(end, start):
+	"""
+	Purpose:	Function handle for fusion sensors
+	"""
 	return ((end-start).microseconds)*1000000
 
 

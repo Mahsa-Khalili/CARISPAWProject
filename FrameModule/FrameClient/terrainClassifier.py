@@ -37,6 +37,7 @@ from mpu6050 import mpu6050
 from mpu9250 import mpu9250
 from fusion import Fusion
 
+from WheelModuleLib import *
 from featuresLib import *
 from IMUSensorLib import *
 from USSSensorLib import *
@@ -49,10 +50,10 @@ HOST = '206.12.32.200' # Variable for UBCVisitor
 PORT = 65432
 
 # Sensor list to activate
-SENSOR_LIST = ['IMU_9', 'IMU_6', 'USS_DOWN', 'USS_FORW', 'PI_CAM']
+SENSOR_LIST = ['IMU_9', 'IMU_6', 'USS_DOWN', 'USS_FORW', 'PI_CAM', 'LEFT', 'RIGHT']
 
 #Active sensors
-ACTIVE_SENSORS = [1]
+ACTIVE_SENSORS = [5]
 
 # Direction Vectors
 STD_COLUMNS = ['X Accel', 'Y Accel', 'Z Accel', 'X Gyro', 'Y Gyro', 'Z Gyro', 'Run Time', 'Epoch Time']
@@ -60,10 +61,9 @@ DATA_COLUMNS =  ['X Accel', 'Y Accel', 'Z Accel', 'X Gyro', 'Y Gyro', 'Z Gyro']
 
 EPSILON = 0.00001 # For small float values
 
-WINDOW_LENGTH = 300 # Window to analyze
-F_SAMP = 300
-F_LOW = 55
-F_HIGH = 1
+FRAME_MODULE = {'wLength': 300, 'fSamp': 300, 'fLow': 55, 'fHigh': 1}
+WHEEL_MODULE = {'wLength': 333, 'fSamp': 333.3, 'fLow': 60, 'fHigh': 1}
+
 PAD_LENGTH = 15 # pad length to let filtering be better
 N_BINS_OVER_CUTOFF = 5 # Collect some information from attenuated frequencies bins
 
@@ -91,9 +91,24 @@ class ClTerrainClassifier:
 		Purpose:	Initialize various sensors and class variables
 		Passed: 	Nothing
 		"""
-		nbins = F_LOW + N_BINS_OVER_CUTOFF
-		self.placement = 'Middle'	
+		
+		# Middle
+		#~ self.placement = 'Middle'
+		#~ self.sensorParam = FRAME_MODULE
+
+		# Left
+		self.placement = 'Left'
+		self.sensorParam = WHEEL_MODULE
+		
+		#~ # Right
+		#~ self.placement = 'Right'
+		#~ self.sensorParam = WHEEL_MODULE
+		
+		# Calculates the number of bins available
+		nbins = int(self.sensorParam['wLength'] / self.sensorParam['fSamp'] *self.sensorParam['fLow'] + N_BINS_OVER_CUTOFF)
+			
 	
+		# Loads dictionaries
 		timeFeatsDict = pkl.load(open(os.path.join(dir_path, 'dicts', 'TimeFeats_Norm_Param_Dictionary.pkl'), 'rb'))
 		self.TimeMean = [timeFeatsDict[self.placement]['{} {} {}'.format(featName, direction, self.placement)]['Mean'] for featName in TIME_FEATURES for direction in DATA_COLUMNS]
 		self.TimeScale = [timeFeatsDict[self.placement]['{} {} {}'.format(featName, direction, self.placement)]['Scale'] for featName in TIME_FEATURES for direction in DATA_COLUMNS]
@@ -105,6 +120,9 @@ class ClTerrainClassifier:
 		self.PSDMean = [PSDLogsDict[self.placement]['{} {} Hz {} {}'.format('PSDLog', featName, direction, self.placement)]['Mean'] for featName in range(nbins) for direction in DATA_COLUMNS]
 		self.PSDScale = [PSDLogsDict[self.placement]['{} {} Hz {} {}'.format('PSDLog', featName, direction, self.placement)]['Scale'] for featName in range(nbins) for direction in DATA_COLUMNS]
 
+		#~ randomForestTime = pkl.load(open(os.path.join(dir_path, 'models', 'RandomForest_Middle_TimeFeats.pkl'), 'rb'))
+
+
 		# Prepopulate pandas dataframe
 		EFTimeColumnNames = ['{} {} {}'.format(featName, direction, self.placement) for featName in TIME_FEATURES for direction in DATA_COLUMNS]
 		self.EFTimeColumnedFeatures = pd.DataFrame(data = np.zeros((1,len(EFTimeColumnNames))), columns = EFTimeColumnNames)
@@ -112,21 +130,21 @@ class ClTerrainClassifier:
 		self.EFFreqColumnedFeatures = pd.DataFrame(data = np.zeros((1,len(EFFreqColumnNames))), columns = EFFreqColumnNames)
 		self.protocol = protocol
 		
-		if self.protocol == 'TCP':
-			self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-			self.socket.settimeout(10)
-			self.socket.connect((HOST, PORT))
-			print('Connected.')
+		#~ if self.protocol == 'TCP':
+			#~ self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+			#~ self.socket.settimeout(10)
+			#~ self.socket.connect((HOST, PORT))
+			#~ print('Connected.')
 		
 		# Initialize data queue and marker to pass for separate prcoesses
 		self.dataQueue = Queue()
 		self.runMarker= Queue()
 		
 		# Create class variables
-		self.windowIMU6raw = np.zeros((WINDOW_LENGTH + 2 * PAD_LENGTH, 6))
-		self.windowIMU6filtered = np.zeros((WINDOW_LENGTH, 6))
-		self.windowIMU6LogPSD = np.zeros([])
-		self.windowIMU6LogPSDFeatures = np.zeros([])
+		self.windowIMUraw = np.zeros((self.sensorParam['wLength'] + 2 * PAD_LENGTH, 6))
+		self.windowIMUfiltered = np.zeros((self.sensorParam['wLength'], 6))
+		self.windowIMULogPSD = np.zeros([])
+		self.windowIMULogPSDFeatures = np.zeros([])
 				
 		# Create dictionary to house various active sensors and acivate specified sensors
 		self.instDAQLoop = {} 
@@ -140,6 +158,11 @@ class ClTerrainClassifier:
 				self.instDAQLoop[SENSOR_LIST[sensor]] = ClProximitySensorDAQ(self.dataQueue, self.runMarker)
 			elif sensor == 4:
 				self.instDAQLoop[SENSOR_LIST[sensor]] = ClPiCameraDAQ(self.dataQueue, self.runMarker)
+			elif sensor == 5:
+				self.instDAQLoop[SENSOR_LIST[sensor]] = ClWheelDataParsing(Left, self.dataQueue, self.runMarker)
+			elif sensor == 6:
+				self.instDAQLoop[SENSOR_LIST[sensor]] = ClWheelDataParsing(Right, self.dataQueue, self.runMarker)
+				
 
 	def fnStart(self, frequency):
 		"""
@@ -168,9 +191,9 @@ class ClTerrainClassifier:
 
 			transmissionData = self.dataQueue.get()
 
-			if transmissionData[0] in ['IMU_6']:
-				self.windowIMU6raw = np.roll(self.windowIMU6raw, -1, axis=0)
-				self.windowIMU6raw[-1, :] = transmissionData[2:8]
+			if transmissionData[0] in ['IMU_6', 'WHEEL']:
+				self.windowIMUraw = np.roll(self.windowIMUraw, -1, axis=0)
+				self.windowIMUraw[-1, :] = transmissionData[2:8]
 			elif transmissionData[0] in ['USS_DOWN', 'USS_FORW']:
 				pass
 			elif transmissionData[0] in ['PI_CAM']:
@@ -184,26 +207,27 @@ class ClTerrainClassifier:
 		
 		index = 0
 		
-		# Set the length of the rolling window which included padded values
-		arrayLength = WINDOW_LENGTH + 2*PAD_LENGTH
-		
 		# Keep running until run marker tells to terminate
 		while self.runMarker:
 			
 			print(time.perf_counter())
 			
 			# Filter window
-			self.fnFilterButter(self.windowIMU6raw)
+			self.fnFilterButter(self.windowIMUraw)
 			
 			# Build extracted feature vector
 			self.fnBuildTimeFeatures(TIME_FEATURES)
 			
 			# Build PSD and PSD features
-			self.fnBuildPSD(self.windowIMU6filtered)
-			self.fnBuildFreqFeatures(FREQ_FEATURES)
+			#~ self.fnBuildPSD(self.windowIMUfiltered)
+			#~ self.fnBuildFreqFeatures(FREQ_FEATURES)
 			
+			print('hmm.')
+			
+			terrainType = randomForestTime.predict(self.EFTimeColumnedFeatures)
+			print(terrainType)
 			print('Classified!')
-			self.socket.sendall(TERRAINS[index].encode())
+			#~ self.socket.sendall(TERRAINS[index].encode())
 			if index == 6:
 				index = 0
 			else:
@@ -226,12 +250,9 @@ class ClTerrainClassifier:
 		Passed:		Rolling raw IMU data
 		"""
 		
-		# Sampling rates are not consistent across all datasets
-		f_samp, f_low, f_high = F_SAMP, F_LOW, F_HIGH
-		
 		# Get normalized frequencies
-		w_low = f_low / (f_samp / 2) 
-		w_high = f_high / (f_samp / 2)
+		w_low = self.sensorParam['fLow'] / (self.sensorParam['fSamp'] / 2) 
+		w_high = self.sensorParam['fHigh'] / (self.sensorParam['fSamp'] / 2)
 
 		# Get Butterworth filter parameters
 		b_butter, a_butter = signal.butter(N=4, Wn=w_low, btype='low')
@@ -240,7 +261,7 @@ class ClTerrainClassifier:
 		
 		# Filter all the data columns
 		for i in range(6):
-			self.windowIMU6filtered[:, i] = signal.filtfilt(b_butter, a_butter, dataSet[:, i])[PAD_LENGTH:300+PAD_LENGTH]
+			self.windowIMUfiltered[:, i] = signal.filtfilt(b_butter, a_butter, dataSet[:, i])[PAD_LENGTH:self.sensorParam['wLength']+PAD_LENGTH]
 		
 		print('filtered!')
 			
@@ -250,36 +271,33 @@ class ClTerrainClassifier:
 		Passed:		Filtered IMU data
 		"""
 		
-		# Frequencies depedent on dataset and device used
-		f_samp, f_low, f_high = F_SAMP, F_LOW, F_HIGH
-
 		# Only include frequency bins up to and a little bit past the cutoff frequency
 		# Everything past that is useless because its the same on all terrains
-		n_bins = int(WINDOW_LENGTH / f_samp * f_low) + N_BINS_OVER_CUTOFF
+		n_bins = int(self.sensorParam['wLength'] / self.sensorParam['fSamp'] * self.sensorParam['fLow']) + N_BINS_OVER_CUTOFF
 		window_psd = np.zeros((n_bins, 6))
-		self.windowIMU6LogPSD = np.zeros((n_bins, 6))
+		self.windowIMULogPSD = np.zeros((n_bins, 6))
 
 		# Calculate PSD for each axes
 		for i in range(6):
 			# Normalized PSD - Returns frequencies and power density
-			freq, Pxx = signal.periodogram(dataWindow[:, i], f_samp)
+			freq, Pxx = signal.periodogram(dataWindow[:, i], self.sensorParam['fSamp'])
 			window_psd[:, i] = np.resize(Pxx[1:], n_bins)
 			
 			# Calculate log10 of PSD, replacing points where PSD = 0 with 0 to avoid division by 0
 			for j in range(len(window_psd[:, i])):
 				if (window_psd[j, i] == 0):
-					self.windowIMU6LogPSD[j, i] = 0
+					self.windowIMULogPSD[j, i] = 0
 				else:
-					self.windowIMU6LogPSD[j, i] = np.log10(window_psd[j, i])
+					self.windowIMULogPSD[j, i] = np.log10(window_psd[j, i])
 			
 		# Append freq column
 		freq_col = np.transpose([np.resize(freq[:-1], n_bins)])
-		self.windowIMU6LogPSD = np.append(self.windowIMU6LogPSD, freq_col, axis=1)
+		self.windowIMULogPSD = np.append(self.windowIMULogPSD, freq_col, axis=1)
 		
 		colNames = ['{} {} Hz {} {}'.format('PSDLog', round(freq[0]), direction, self.placement) for freq in freq_col for direction in DATA_COLUMNS]	
-		psdLogData = [self.windowIMU6LogPSD[i, j] for j in range(len(self.windowIMU6LogPSD[0, :])-1) for i in range(len(self.windowIMU6LogPSD[:, 0]))]
+		psdLogData = [self.windowIMULogPSD[i, j] for j in range(len(self.windowIMULogPSD[0, :])-1) for i in range(len(self.windowIMULogPSD[:, 0]))]
 		psdLogData = np.divide(np.subtract(psdLogData, self.PSDMean), self.PSDScale)
-		self.windowIMU6LogPSDFeatures = pd.DataFrame(data=[psdLogData], columns=colNames)
+		self.windowIMULogPSDFeatures = pd.DataFrame(data=[psdLogData], columns=colNames)
 		
 		print('PSD!')
    	
@@ -289,7 +307,7 @@ class ClTerrainClassifier:
 					then columns the data and standardized based on mean and std
 		Passed:		Feature dictionary to perform
 		"""
-		dataList = [function(self.windowIMU6filtered[:, i]) for featName, function in features.items() for i, direction in enumerate(DATA_COLUMNS)]
+		dataList = [function(self.windowIMUfiltered[:, i]) for featName, function in features.items() for i, direction in enumerate(DATA_COLUMNS)]
 		dataList = np.divide(np.subtract(dataList, self.TimeMean), self.TimeScale)
 		dataNames = ['{} {} {}'.format(featName, direction, self.placement) for featName in features for direction in DATA_COLUMNS]
 		self.EFTimeColumnFeatures = pd.DataFrame(data=[dataList], columns=dataNames)
@@ -300,51 +318,11 @@ class ClTerrainClassifier:
 					then columns the data and standardized based on mean and std
 		Passed:		Feature dictionary to perform
 		"""
-		dataList = [function(self.windowIMU6LogPSD[:, -1], self.windowIMU6LogPSD[:, i]) for featName, function in features.items() for i, direction in enumerate(DATA_COLUMNS)]
+		dataList = [function(self.windowIMULogPSD[:, -1], self.windowIMULogPSD[:, i]) for featName, function in features.items() for i, direction in enumerate(DATA_COLUMNS)]
 		dataList = np.divide(np.subtract(dataList, self.FreqMean), self.FreqScale)
 		dataNames = ['{} {} {}'.format(featName, direction, self.placement) for featName in features for direction in DATA_COLUMNS]
 		self.EFFreqColumnFeatures = pd.DataFrame(data=[dataList], columns=dataNames)
 
-        
-# FUNCTIONS
-
-'''Append a tag to the end of every column name of a dataframe'''
-def append_all_columns(columns, direction, placement):
-    new_columns = []
-    
-    for column in columns:
-        new_columns.append(' '.join([column, direction, placement]))
-    
-    return new_columns
-
-
-def fnRegFeatures(dataWindow):
-
-	# Create array of features of each window for each dataset and direction
-	datasets_feat_time = feature_all(TIME_FEATURES, datasets_Window)
-
-'''Normalize already featured datasets'''
-def normalize_datasets(datasets, windowed=False):
-    # Normalization function
-    
-    datasets_norm = {}
-    
-    # Go through windowed data (transforms) or dictionary data (features)
-    for label, dataset in datasets.items():
-        if windowed:
-            dataset_norm = []
-            for window_df in dataset:
-                window_df = window_df.dropna()
-                dataset_norm.append(window_df.apply(scale))
-        else:
-            dataset_norm = {}
-            for dirn_label, dirn_df in dataset.items():
-                dirn_df = dirn_df.dropna()
-                dataset_norm.update({dirn_label: dirn_df.apply(sklearn.preprocessing.scale)})
-        
-        datasets_norm.update({label: dataset_norm})
-    
-    return datasets_norm
 
 
 # MAIN PROGRAM
@@ -356,8 +334,8 @@ if __name__=="__main__":
 	dummyQueue = Queue
 	dummyMarker = Queue
 
-	instMpu9250DAQ = ClMpu9250DAQ(dummyQueue, dummyMarker)
-	instMpu9250DAQ.fnCalibrate()
+	#~ instMpu9250DAQ = ClMpu9250DAQ(dummyQueue, dummyMarker)
+	#~ instMpu9250DAQ.fnCalibrate()
 	instMpu6050DAQ = ClMpu6050DAQ(dummyQueue, dummyMarker)
 	instMpu6050DAQ.fnCalibrate()
 
