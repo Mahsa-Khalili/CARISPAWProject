@@ -240,8 +240,11 @@ class ClDisplayDataQT:
         Passsed:    Sources containing information on file storage path and stored value arrays.
         """
 
+        # Saves sources and active sensors into class variables
         self.sources = sources
         self.activeSensors = activeSensors
+
+        # Creates hhead markers to determine where the alignment points are on left and right wheel data
         self.head = [0, 0] # Left last used, right last used
 
         self.win = pg.GraphicsWindow(title="Received Signal(s)")  # creates a window
@@ -250,13 +253,14 @@ class ClDisplayDataQT:
         self.plotData = {} # Create dictionary for subplot data
 
         # Set which parameters you want to plot, 3 is a good number for the window size
-        self.graphSet = ['Heading (deg)', 'Pitch (deg)', 'Roll (deg)']
+        # self.graphSet = ['Heading (deg)', 'Pitch (deg)', 'Roll (deg)']
         # self.graphSet = ['X Angular Velocity (rad/s)', 'Y Angular Velocity (rad/s)', 'Z Angular Velocity (rad/s)']
         # self.graphSet = ['X Magnetometer', 'Y Magnetometer', 'Z Magnetometer']
         # self.graphSet = ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)', 'Z Acceleration (m/s^2)']
         # self.proximity = ['Proximity (cm)']
-        # self.graphSet = ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)',  'Z Angular Velocity (rad/s)']
+        self.graphSet = ['X Acceleration (m/s^2)', 'Y Acceleration (m/s^2)',  'Z Angular Velocity (rad/s)']
         self.proximity = []
+
         # Create plots
         for item in self.graphSet:
             self.plot[item] = self.win.addPlot(title="{}".format(item), clipToView=True)
