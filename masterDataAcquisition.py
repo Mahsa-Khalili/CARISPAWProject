@@ -4,6 +4,19 @@ Date:           2019 May 24th
 Purpose:        This Python code utilizes various custom data collection libraries to interface with the Wheelchair
                 data acquisition hardware. These include connections to the phones, the Teensy Wheel Modules, and the
                 Raspberry Pi Frame Modules.
+
+                Reference Frames:
+
+                The frame module utilizes aeronautical notation with x being the forward direction, y being the westward
+                or left direction, and z pointing in the upward direction.
+
+                Consequently linear velocity of the wheelchair is referred to as x velocity when discussing the
+                synthesized wheel data. The angular velocity of the wheelchair, as well, is also referred to as
+                z angular velocity.
+
+                The wheel modules have their z-axis pointing away from the wheelchair with x and y direction rotating
+                on the local wheel reference frame.
+
 """
 
 
@@ -128,8 +141,6 @@ SynthesisDataDict ={'X Velocity (m/s)': 1, 'X Acceleration (m/s^2)': 2, 'Z Angul
 PenColors = [(31, 119, 180), (255, 127, 14), (44, 160, 44), (214, 39, 40), (148, 103, 189), (140, 66, 75),
              (227, 119, 194), (127, 127, 127), (188, 189, 34), (23, 190, 207)]
 
-TestArray = {'Wheel': np.zeros((3, 1000)), 'Frame': np.zeros((6, 1000))}
-
 # CLASSES
 
 class ClUIWrapper():
@@ -146,7 +157,7 @@ class ClUIWrapper():
 
         self.sources = sources  # Make globally set source dictionaries available to class
         self.instDAQLoop = {}  # Initialize dictionary containing data acquisition
-        self.activeSensors = [1]
+        self.activeSensors = [] # Initialize active sensor list
 
         # Initialize every passed data module
         for dataSource in self.sources:
@@ -238,6 +249,8 @@ class ClDisplayDataQT:
         Purpose:    Initialize QT window and subplots with axes and titles.
                     Store source data based on which sources were passed.
         Passsed:    Sources containing information on file storage path and stored value arrays.
+        TODO:       Make graphing more robust so that indexing doesn't break when sensors don't have proper parameters
+                    (Specifically for the 9-axis vs. 6-axis IMUs)
         """
 
         # Saves sources and active sensors into class variables
@@ -304,6 +317,8 @@ class ClDisplayDataQT:
         """
         Purpose:    Access display data arrays and displays results in QT interface.
         Passed:     None
+        TODO:       Alter code so that we can run without the graphical interface, potentially add line to initial main
+                    program
         """
 
         # Cycles through source queues and update plots
@@ -328,7 +343,7 @@ class ClDisplayDataQT:
                 # Updates only on left wheel read
                 if (dataSource['Name'] == 'Left'):
 
-                    if self.head[0] > -2000:
+                    if self.head[0] > -len(Synthesis['DisplayData']):
                         # Decrement left head
                         self.head[0] -= 1
 

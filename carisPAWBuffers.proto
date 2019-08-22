@@ -1,0 +1,47 @@
+syntax = 'proto3';
+
+message frameUnit{
+	optional double time_stamp=1;
+	
+	enum Sensor {
+		IMU_9 = 0;
+		IMU_6 = 1;
+		USS_DOWN = 2;
+		USS_FORW = 3;
+		PI_CAM = 4;
+	}
+	
+	optional Sensor sensorType = 2;
+	
+	optional float acc_x = 3;
+	optional float acc_y = 4;
+	optional float acc_z = 5;
+	optional float angular_x = 6;
+	optional float angular_y = 7;
+	optional float angular_z = 8;
+	optional float mag_x = 9;
+	optional float mag_y = 10;
+	optional float mag_z = 11;
+	
+	optional float heading = 12;
+	optional float pitch = 13;
+	optional float roll = 14;	
+
+	optional float USensorForward = 15;
+	optional float USensorDownward = 16;
+
+	optional bytes piCamImage = 17;
+	optional int32 imageHeight = 18;
+	optional int32 imageWidth = 19;
+}
+
+message wheelUnit{
+	optional float time_stamp=1;
+	optional bool isStamp = 2;
+	optional float acc_x = 3;
+	optional float acc_y = 4;
+	optional float acc_z = 5;
+	optional float angular_x = 6;
+	optional float angular_y = 7;
+	optional float angular_z = 8;
+}
