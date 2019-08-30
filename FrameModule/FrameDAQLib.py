@@ -60,7 +60,7 @@ class ClFrameDataParsing:
     Class that instantiates ClTCPServer to connect to Pi, receiving MPU6050/9250 data.
     """
 
-    def __init__(self, dataSource, commPort = 65432, protocol = 'UDP'):
+    def __init__(self, dataSource, commPort = 65432, protocol = 'TCPe'):
         """
         Purpose:    Connect to frame module using UDP/TCP/BT and sends data to main program
         Passed:     dataSource dicitionary with all relevant information
@@ -127,7 +127,7 @@ class ClFrameDataParsing:
         """
 
         status = 'Active.' # Set marker to active
-        sensorCount = [-50, -50, -15, 0, 0]
+        sensorCount = [-50, -50, -15, 0, 0] # Negative values to prefent frequency calculations to break
 
         receivedCalPy = []
         receivedCalPi = []
@@ -136,6 +136,7 @@ class ClFrameDataParsing:
             self.FrameUnit.fnCOBSIntialClear() # Wait until message received starts at the correct location
 
         # Cycle through data retrieval to clear out buffered messages
+        # 2000 & 1000 samples chose arbitrarily
         for i in range(2000):
             if status != 'Disconnected.':
                 status = self.FrameUnit.fnRetievePiMessage()
@@ -147,6 +148,7 @@ class ClFrameDataParsing:
                 receivedCalPi.append(self.fnReceiveData(self.FrameUnit.cobsMessage, state = 'wait'))
                 receivedCalPy.append(time.time())
 
+        # Find the average difference for time alignment
         self.refTime = np.mean(np.subtract(receivedCalPy, receivedCalPi))
 
         # Initializes response for time synchronization
@@ -162,6 +164,7 @@ class ClFrameDataParsing:
             frameBuffer = self.fnReceiveData(self.FrameUnit.cobsMessage)
             sensorCount[frameBuffer.sensorType] += 1
 
+            # 500 chosen arbitrarily to display frequency
             if sensorCount[0] >= 500:
                 print('IMU-9 Frequency: {} Hz'.format(500/(self.timeStamp9250[-1] - self.timeStamp9250[-501])))
                 sensorCount[0] = 0
@@ -173,14 +176,12 @@ class ClFrameDataParsing:
                 sensorCount[2] = 0
         self.fnSaveData()
 
+        # Empty queue before calling shutdown
         while not self.Queue.empty():
             self.Queue.get()
 
         # Close socket connection
         self.FrameUnit.fnShutDown()
-
-        while not self.Queue.empty():
-            self.Queue.get()
 
     def fnReceiveData(self, msg, state = 'stream'):
         """
@@ -218,8 +219,7 @@ class ClFrameDataParsing:
                     (x, y, z) angular velocity in deg/s.
         """
 
-        # Appends class lists
-
+        # Appends class lists and place into queue for data visualization
         if frameUnitPB.sensorType == carisPAWBuffers.frameUnit.IMU_6:
 
             self.timeStamp6050.append(self.refTime + frameUnitPB.time_stamp)
@@ -230,16 +230,20 @@ class ClFrameDataParsing:
             self.yGyro6050.append(frameUnitPB.angular_y * math.pi / 180)
             self.zGyro6050.append(frameUnitPB.angular_z * math.pi / 180)
 
+            # Perform complimentary filter only when more than one item exists
             if len(self.timeStamp6050) > 1:
                 self.fnCalculateAngles(self.timeStamp6050[-1] - self.timeStamp6050[-2],  frameUnitPB, source = '6050')
             else:
                 self.fnCalculateAngles(0, frameUnitPB, source='6050')
 
+            # place into queue
             self.Queue.put([carisPAWBuffers.frameUnit.IMU_6, self.timeStamp6050[-1], frameUnitPB.acc_x, frameUnitPB.acc_y, frameUnitPB.acc_z,
                             frameUnitPB.angular_x * math.pi / 180, frameUnitPB.angular_y * math.pi / 180,
                             frameUnitPB.angular_z * math.pi / 180, self.valPitch['6050'], self.valRoll['6050'], self.valHeading['6050']])
 
         elif frameUnitPB.sensorType == carisPAWBuffers.frameUnit.IMU_9:
+
+            # place into class lists
             self.timeStamp9250.append(self.refTime + frameUnitPB.time_stamp)
             self.xData9250.append(frameUnitPB.acc_x)
             self.yData9250.append(frameUnitPB.acc_y)
@@ -251,17 +255,20 @@ class ClFrameDataParsing:
             self.yGyro9250.append(frameUnitPB.angular_y * math.pi / 180)
             self.zGyro9250.append(frameUnitPB.angular_z * math.pi / 180)
 
+            # calculate angle using complimentary filter if angles are avilable
             if len(self.timeStamp9250) > 1:
                 self.fnCalculateAngles(self.timeStamp9250[-1] - self.timeStamp9250[-2], frameUnitPB, source='9250')
             else:
                 self.fnCalculateAngles(0, frameUnitPB, source='9250')
 
+            # place into queue for data visualizatio
             self.Queue.put([carisPAWBuffers.frameUnit.IMU_9, self.timeStamp9250[-1], frameUnitPB.acc_x, frameUnitPB.acc_y, frameUnitPB.acc_z,
                             frameUnitPB.angular_x * math.pi / 180, frameUnitPB.angular_y * math.pi / 180, frameUnitPB.angular_z * math.pi / 180,
                             self.valPitch['9250'], self.valRoll['9250'], self.valHeading['9250'],
                             frameUnitPB.mag_x, frameUnitPB.mag_y, frameUnitPB.mag_z
                             ])
 
+        # Store and send back ultrasonic sensor information
         elif frameUnitPB.sensorType == carisPAWBuffers.frameUnit.USS_DOWN:
             self.timeStampUSS.append(self.refTime + frameUnitPB.time_stamp)
             self.proximityDown.append(frameUnitPB.USensorDownward)
@@ -274,6 +281,7 @@ class ClFrameDataParsing:
         passed:     None.
         """
 
+        # value that determines the bias towards accelerometer or gyroscope, high leads to greater gyrosocope bias
         alpha = 0.98
 
         # Integrate the gyroscope data -> int(angularSpeed) = angle
@@ -355,20 +363,22 @@ class ClFrameDataParsing:
 
 class ClWirelessServer:
     """
-    Class
+    Class for connecting to client
     """
 
-    def __init__(self, address, host, port, protocol):
+    def __init__(self, address, host, port, protocol = 'TCP'):
         """
-        Purpose:
-        Passed:
+        Purpose:    Receives information regarding the port to listen to and creates a socket connection. This class
+                    also decodes COBS.
+        Passed:     Information to perform connection and protocol to connect to frame module.
         """
+
         self.protocol = protocol
         self.cobsMessage = ''  # Create variable for storing COBS decoded message
 
         if self.protocol == 'TCP':
             self.TCPSocket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.TCPSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.TCPSocket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1) # allows the socket to be reused
 
             print ("{}: Began connection".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
 
@@ -389,6 +399,7 @@ class ClWirelessServer:
             print('Initialized.')
             self.socket.connect((address, port))
 
+        # first message sent by pi is related to which sensors are active
         self.activeSensors = self.socket.recv(24)
 
     def fnCOBSIntialClear(self):
@@ -396,13 +407,13 @@ class ClWirelessServer:
         Purpose:    Clear out initial code until at the start of a message.
         Passed:     None.
         """
-        byte = self.fnReceive(1)
+        byte = self.socket.recv(1)
 
         # Keep looping while byte received is not 0, i.e. the end/start of a cobs message.
         while ord(byte) != 0:
 
             # Keep looping while not 0
-            byte = self.fnReceive(1)
+            byte = self.socket.recv(1)
             print("Not 0")
 
             # Clear out potential initial garbage
@@ -416,32 +427,6 @@ class ClWirelessServer:
         print("Disconnecting server.")
         self.socket.close()
         print("Disconnected server.")
-
-    def fnReceive(self, MSGLEN):
-        """
-        Purpose:    Retrieve data for fnCOBSInitialClear.
-        Passed:     Length of byte to receive.
-        Return:     Joined byte string.
-        """
-        chunks = []
-        bytes_recd = 0
-
-        while bytes_recd < MSGLEN:
-
-            print("Waiting for msg")
-            chunk = self.socket.recv(1)
-            print(chunk[0])
-            print(ord(chunk))
-
-            if chunk == '':
-                print("socket connection broken shutting down this thread")
-                self.socket.close()
-                print("Disconnected.")
-                return 0
-
-            chunks.append(chunk)
-            bytes_recd = bytes_recd + len(chunk)
-        return b''.join(chunks)
 
     def fnRetievePiMessage(self):
         """
@@ -466,7 +451,7 @@ class ClWirelessServer:
         elif self.protocol == 'UDP':
             data = self.socket.recv(128)
 
-        # Try to decode message and returnes exception to avoid closing the program
+        # Try to decode message and returns exception to avoid closing the program
         try:
             self.cobsMessage = cobs.decode(data)
             return 'Received.'
@@ -476,8 +461,10 @@ class ClWirelessServer:
 
 if __name__ == "__main__":
 
+    # Create directory if it doesn't exist
     if not os.path.exists(os.path.join(dir_path, 'IMU Data')):
         os.mkdir(os.path.join(dir_path, 'IMU Data'))
 
+    # Start test run
     instFrameDataParsing = ClFrameDataParsing(RaspberryPi)
     instFrameDataParsing.fnRun()

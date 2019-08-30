@@ -43,7 +43,7 @@ def fc(freqs, psd_amps):
     num = np.sum(np.multiply(np.resize(freqs, len(psd_amps)), psd_amps))
     denom = np.sum(psd_amps)
     
-    # In case zero amplitude transform is ecountered
+    # In case zero amplitude transform is encountered
     if denom <= EPSILON:
         return EPSILON
     

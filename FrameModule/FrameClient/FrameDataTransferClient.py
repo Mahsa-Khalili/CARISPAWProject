@@ -71,7 +71,7 @@ class ClTransferClient:
 		# Stores protocol in class variable
 		self.protocol = protocol
 		
-		# Initiates various socket connnections based on passed protocol
+		# Initiates various socket connections based on passed protocol
 		if self.protocol == 'TCP':
 			self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 			self.socket.settimeout(10)
@@ -131,7 +131,7 @@ class ClTransferClient:
 			processes[SENSOR_LIST[sensor]] = Process(target=self.instDAQLoop[SENSOR_LIST[sensor]].fnRun, args = (frequency, ))
 			processes[SENSOR_LIST[sensor]].start()
 
-		# Continuously
+		# Continuously runs
 		while True:
 
 			# Get first entry from queue

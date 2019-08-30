@@ -33,11 +33,14 @@ import pyqtgraph as pg
 from pyqtgraph.Qt import QtGui
 from PyQt5 import QtCore
 from multiprocessing import Process, Queue
-from scipy.signal import butter, lfilter
 
 # DEFINITIONS
 
 dir_path = os.path.dirname(os.path.realpath(__file__))  # Current file directory
+WHEEL_DIAMETER = 0.59   # in m
+WHEEL_BASE = 0.52       # in m
+MOVING_AVERAGE = 6      # number of values
+QT_UPDATE_SPEED = 50    # in ms
 
 # CUSTOM LIBRARIES
 
@@ -145,7 +148,8 @@ PenColors = [(31, 119, 180), (255, 127, 14), (44, 160, 44), (214, 39, 40), (148,
 
 class ClUIWrapper():
     """
-    Class for running wheel module data acquisition (ClWheelDataParsing) and real-time display (ClDisplayDataQT).
+    Class for running all module data acquisition (ClWheelDataParsing, ClFrameDataParsing, ClPhoneDataPrasing) and
+    real-time display (ClDisplayDataQT).
     """
 
     def __init__(self, sources):
@@ -324,7 +328,11 @@ class ClDisplayDataQT:
         # Cycles through source queues and update plots
         # TODO: Check efficiency of roll and if indexing would be more efficient
         for dataSource in self.sources:
+
+            # Get approximate queue size
             qSize = dataSource['Queue'].qsize()
+
+            # extract every item from the queue
             for i in range(qSize):
                 buffer = dataSource['Queue'].get()
                 if buffer[0] == 0:
@@ -343,7 +351,7 @@ class ClDisplayDataQT:
                 # Updates only on left wheel read
                 if (dataSource['Name'] == 'Left'):
 
-                    if self.head[0] > -len(Synthesis['DisplayData']):
+                    if self.head[0] > -len(Synthesis['DisplayData'][0, :]):
                         # Decrement left head
                         self.head[0] -= 1
 
@@ -366,10 +374,11 @@ class ClDisplayDataQT:
                         # store and save velocity
                         Synthesis['DisplayData'][1, -1] = ((Left['DisplayData-IMU_6'][6, self.head[0]] -
                                                             Right['DisplayData-IMU_6'][
-                                                                6, self.head[0]]) / 2) * 0.59 / 2
+                                                                6, self.head[0]]) / 2) * WHEEL_DIAMETER / 2
                         Synthesis['DataStorage']['xVelocity'].append(Synthesis['DisplayData'][1, -1])
 
                         # store and save accelerations
+                        # Need two values to calculate dirty derivative
                         if len(Synthesis['DataStorage']['timeStamp']) > 2:
                             Synthesis['DataStorage']['xAcceleration'].append(
                                 (Synthesis['DisplayData'][1, -1] - Synthesis['DisplayData'][
@@ -377,13 +386,15 @@ class ClDisplayDataQT:
                         else:
                             Synthesis['DataStorage']['xAcceleration'].append(0)
 
-                        if len(Synthesis['DataStorage']['timeStamp']) > 6:
-                            Synthesis['DisplayData'][2, -1] = np.mean(Synthesis['DataStorage']['xAcceleration'][-6:-1] )
+                        # Calculate moving average
+                        if len(Synthesis['DataStorage']['timeStamp']) > MOVING_AVERAGE:
+                            Synthesis['DisplayData'][2, -1] = np.mean(Synthesis['DataStorage']['xAcceleration'][-MOVING_AVERAGE:-1] )
 
                         # store angular velocity
+                        # 0.59 is wheel diameter, 0.52 is distance between wheels
                         Synthesis['DisplayData'][3, -1] = (-Left['DisplayData-IMU_6'][6, self.head[0]] -
                                                             Right['DisplayData-IMU_6'][
-                                                                6, self.head[0]]) * 0.59 / 2 / 0.52
+                                                                6, self.head[0]]) * WHEEL_DIAMETER / 2 / WHEEL_BASE
                         Synthesis['DataStorage']['zAngular'].append(Synthesis['DisplayData'][3, -1])
 
                         # Stores left and right IMU data, aligned
@@ -427,10 +438,11 @@ class ClDisplayDataQT:
 
                 elif (dataSource['Name'] == 'Right'):
 
-                    if self.head[1] > -2000:
+                    if self.head[1] > -len(Synthesis['DisplayData'][0, :]):
                         # Decrement right head
                         self.head[1] -= 1
 
+            # Display frame data
             if dataSource['Name'] == 'Frame':
                 for item in self.graphSet:
 
@@ -446,6 +458,9 @@ class ClDisplayDataQT:
                         self.plotData[dataSource['Name']][item].setData(dataSource['DisplayData-USS'][0],
                                                                         dataSource['DisplayData-USS'][
                                                                             IMUDataDict[item]])
+
+            # Display potentially phone data
+            # TODO: Decide if phone data acquisition should be removed, if not, needs updating
             else:
                 for item in self.graphSet:
                     self.plotData[dataSource['Name']][item].setData(dataSource['DisplayData-IMU_6'][0],
@@ -458,11 +473,13 @@ class ClDisplayDataQT:
 
 if __name__ == "__main__":
 
+    # Create directories
     if not os.path.exists(os.path.join(dir_path, 'IMU Data')):
         os.mkdir(os.path.join(dir_path, 'IMU Data'))
     if not os.path.exists(os.path.join(dir_path, 'Proximity Data')):
         os.mkdir(os.path.join(dir_path, 'Proximity Data'))
 
+    # Sets status to active for recording user input sources
     status = 'Active'
     sources = []
 
@@ -476,6 +493,7 @@ if __name__ == "__main__":
     print('R -  Right Phone')
     print('None / Wrong - End input or enter defaults')
 
+    # Collects all user input sources
     while status == 'Active':
         source = input('Input: ')
 

@@ -25,13 +25,19 @@ import carisPAWBuffers_pb2 as frameMsgStruct
 class ClPiCameraDAQ:
 	
 	def __init__(self, dataQueue, runMarker):
-	
+		"""
+		Purpose:	Save data queue and marker to class ariable
+		Passed:		Multiprocessing queue and run marker queue
+		"""
 		self.dataQueue = dataQueue
 		self.runMarker = runMarker
 
 	
 	def fnRun(self, frequency):
-		
+		"""
+		Purpose:	Initialize camera and preview, then send to data queue as PIL object
+		Passed:		Frequency for running
+		"""
 		self.cam = PiCamera()
 		self.cam.resolution = (1024,768)
 		self.cam.framerate = 15
@@ -39,17 +45,18 @@ class ClPiCameraDAQ:
 		self.cam.start_preview(alpha=200)
 		
 		time.sleep(2)
-		
+
+		# Runs until kill command is given
 		while (self.runMarker.empty()):
-			print('1')
 			self.fnGetImage()
-			print('2')
 			self.dataQueue.put(['PI_CAM', time.time(), Image.open(self.stream)])
-			print('3')
 			time.sleep(300/frequency - (time.time() % (300/frequency)))
-			print('4')
 	
 	def fnGetImage(self):
+		"""
+		Purpose:	Class method for resetting and then capturing image onto stream
+		Passed:		None
+		"""
 
 		self.stream.seek(0)
 		self.stream.truncate()
@@ -57,23 +64,28 @@ class ClPiCameraDAQ:
 	
 
 if __name__ == "__main__":
-	
+
+	# Create dummy queues for test runs
 	dummyQueue = Queue()
 	dummyMarker = Queue()
-	
+
+	# Sets test run frequency
 	frequency = 100
-	
+
+	# Instantiates the class
 	instSensor = ClPiCameraDAQ(dummyQueue, dummyMarker)
-	
+
+	# Runs the method in a different class
 	PCam = Process(target=instSensor.fnRun, args = (frequency, ))
 	PCam.start()
-	
+
 	timeStamp = []
 	
 	timeStart = time.time()
 	
 	counter = 0
-	
+
+	# Print time stamps
 	while(time.time() < timeStart + 100):
 		bufferPC = dummyQueue.get()
 		image = bufferPC[2]
@@ -83,34 +95,4 @@ if __name__ == "__main__":
 		if counter > 5:
 			counter = 0
 			print('PC Frequency: {}'.format(300/(timeStamp[-1]-timeStamp[-51])))
-			
-	#~ camera = PiCamera()
-	#~ camera.resolution = (1024,768)
-	#~ camera.framerate = 15
-	
-	#~ stream = io.BytesIO()
-	
-	#~ camera.start_preview(alpha=200)
-	#~ time.sleep(2)
-	#~ camera.capture(stream, format='jpeg')
-	#~ camera.stop_preview()
-	
-	#~ stream.seek(0)
-	#~ image = Image.open(stream)
-	#~ print('The size of the image is:')
-	#~ print(image.format, image.size, image.mode)
-	#~ image.show()
-	
-	#~ stream.seek(0)
-	#~ stream.truncate()
-	
-	#~ camera.start_preview(alpha=200)
-	#~ time.sleep(2)
-	#~ camera.capture(stream, format='jpeg')
-	#~ camera.stop_preview()
-	
-	#~ stream.seek(0)
-	#~ image = Image.open(stream)
-	#~ image.show()
-	
-	#~ input('Pause')
+

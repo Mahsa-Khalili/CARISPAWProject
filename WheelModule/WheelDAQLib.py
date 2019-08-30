@@ -125,11 +125,6 @@ class ClWheelDataParsing:
         # Sets the timing variables
         self.refTime = np.mean(np.subtract(receivedCalPy, [x/1000 for x in receivedCalWheel]))
 
-        # Initializes response for time synchronization
-        # if status != 'Disconnected.':
-        #     status = self.IMU.fnRetieveIMUMessage()
-        #     self.fnReceiveData(self.IMU.cobsMessage, 'init')
-
         # Cycle through data retrieval until bluetooth disconnects or terminate signal received
         while status != 'Disconnected.' and self.runStatus.empty():
             status = self.IMU.fnRetieveIMUMessage()
@@ -157,9 +152,6 @@ class ClWheelDataParsing:
 
         # Try to decipher message based on preset protobuf specifications
         try:
-            # # Get data size
-            # dataSizeArray = msg[:4]
-            # dataSize = struct.unpack("<L", dataSizeArray)[0]
 
             # Pass msg to imuMsg to parse into float values stored in imuMsg instance
             data = msg[:]
@@ -294,48 +286,25 @@ class ClBluetoothConnect:
         Purpose:    Clear out initial code until at the start of a message.
         Passed:     None.
         """
-        byte = self.fnReceive(1)
+        byte = self.sock.recv(1)
 
         # Keep looping while byte received is not 0, i.e. the end/start of a cobs message.
         while ord(byte) != 0:
 
             # Keep looping while not 0
-            byte = self.fnReceive(1)
+            byte = self.sock.recv(1)
             print("Not 0")
 
             # Clear out potential initial garbage
             pass
 
-    def fnReceive(self, MSGLEN):
-        """
-        Purpose:    Retrieve data for fnCOBSInitialClear.
-        Passed:     Length of byte to receive.
-        Return:     Joined byte string.
-        """
-        chunks = []
-        bytes_recd = 0
-
-        while bytes_recd < MSGLEN:
-
-            print("Waiting for msg")
-            chunk = self.sock.recv(1)
-            print(chunk[0])
-            print(ord(chunk))
-
-            if chunk == '':
-                print("socket connection broken shutting down this thread")
-                self.fnShutDown()
-                return 0
-
-            chunks.append(chunk)
-            bytes_recd = bytes_recd + len(chunk)
-        return b''.join(chunks)
-
 
 if __name__ == "__main__":
 
+    # Make directories if they don't exist
     if not os.path.exists(os.path.join(dir_path, 'IMU Data')):
         os.mkdir(os.path.join(dir_path, 'IMU Data'))
 
+    # Test run
     instWheelDataParsing = ClWheelDataParsing(Left)
     instWheelDataParsing.fnRun()
