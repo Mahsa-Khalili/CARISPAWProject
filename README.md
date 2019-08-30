@@ -153,8 +153,6 @@ To activate sensors, you have to set the header variable ACTIVE_SENSORS to inclu
 	USS-D - 2
 	USS-F - 3 (Not implemented as of 2019 August)
 	PiCam - 4 (Not implemented as of 2019 August)
-	LeWhl - 5 (Not implemented as of 2019 August)
-	RiWhl - 6 (Not implemented as of 2019 August)
 
 The program will then run all active sensors, trasmitting data via wifi to the remote laptop.
 
@@ -166,18 +164,26 @@ This is done thorugh a socket connection with the Raspberry Pi.
 
 ### 3.4 Frame Terrain Classification
 
-The frame terrain classification is currently only working witht the middle frame, although it can be adjusted for individual wheel modules quite easily.
+The frame terrain classification is currently only working with the middle frame, although it can be adjusted for individual wheel modules quite easily.
 Reusing much of the code for the data acquisition, a similar queue implementation is used.
 
 The machine learning algorithms and methods are the major points for the terrain classification.
 The completed / trained classifiers are provided in the form of joblib files, which are more efficient than pickle files for storing Python objects.
 Currently, support vector machines and random forests are implemented for time features, frequency features, and log PSDs (power spectrum densities).
 
+	IMU-9 - 0
+	IMU-6 - 1
+	USS-D - 2
+	USS-F - 3 (Not implemented as of 2019 August)
+	PiCam - 4 (Not implemented as of 2019 August)
+	RiWhl - 5 (Not implemented as of 2019 August)
+	LeWhl - 6 (Not implemented as of 2019 August)
+
 *Note that due to quirks of the random forest algorithm, the machine leaning must occur on a 32-bit system*
 
 ***
 
-## 4.0 Adjusting Start-up Python Progrma (Frame)
+## 4.0 Adjusting Start-up Python Program (Frame)
 
 The Raspberry Pi is set to autorun a service which calls a python script after connecting to wi-fi.
 To start or stop this script when you're troublehooting, utilize the following commands:
@@ -196,3 +202,27 @@ and change the script:
 	FrameDataTransferClient.py from/to terrainClassifier.py
 	
 When you reboot the Pi, it will then start whichever progam of your choice.
+
+***
+
+## 5.0 Router Set-up
+
+The router should be set to dynamic in the LAN settings for running frmae module code. 
+
+Currently with the laptop set-up as the server, you will have assign your laptop with a the IP address of 192.168.0.100.
+This can be changed in the router settings under DHCP > address reservation.
+
+***
+
+## 6.0 Future Work
+
+### 6.1 High Priority Work
+1. Add data collection / storage for terrain classification retrieval.
+1. Get left and right wheel modules communicating with the frame module and calculate synthesis data.
+
+### 6.2 Low Priority Work
+1. Switch queue structures for value structures for run markers and ensure all sub libraries utilize the run marker.
+1. Switch the server and client relationship of the Pi and laptop so any laptop works.
+1. Implement forward ultrasonic sensors.
+1. Implement pi camera to take photos and feed back using protobuffer structures.
+1. Test multiple sensors working conurrently for stability.
