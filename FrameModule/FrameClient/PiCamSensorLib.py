@@ -89,7 +89,7 @@ if __name__ == "__main__":
 	while(time.time() < timeStart + 100):
 		bufferPC = dummyQueue.get()
 		image = bufferPC[2]
-		image.show()
+		image.save("testPhoto-{}.jpg".format(counter), "JPEG")
 		counter +=1
 		timeStamp.append(bufferPC[1])
 		if counter > 5:
