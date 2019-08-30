@@ -216,13 +216,47 @@ This can be changed in the router settings under DHCP > address reservation.
 
 ## 6.0 Future Work
 
+<<<<<<< HEAD
+### 6.1 Software Work
+
+#### High Priority Work
+1. Add data collection / storage for terrain classification retrieval.
+1. Get left and right wheel modules communicating with the frame module and calculate synthesis data.
+
+#### Low Priority Work
+=======
 ### 6.1 High Priority Work
 1. Add data collection / storage for terrain classification retrieval.
 1. Get left and right wheel modules communicating with the frame module and calculate synthesis data.
 
 ### 6.2 Low Priority Work
+>>>>>>> remotes/origin/master
 1. Switch queue structures for value structures for run markers and ensure all sub libraries utilize the run marker.
 1. Switch the server and client relationship of the Pi and laptop so any laptop works.
 1. Implement forward ultrasonic sensors.
 1. Implement pi camera to take photos and feed back using protobuffer structures.
+<<<<<<< HEAD
 1. Test multiple sensors working conurrently for stability.
+
+### 6.2 Hardware Deficiencies / Improvements
+
+#### Wheel Module
+1. Add indicator light to tell when the module is on.
+1. Redesign casing to eliminate the use of printed threads. Perhaps look at plastic inserts or threaded inserts.
+1. Redesign casing to make the entire system easier to open up and put back together. Consider quick-release mechanism or latches.
+1. Allow for battery charging without opening up the casing.
+1. Consider building a PCB for the entire device.
+1. Decrease overall footprint.
+
+#### Frame Module
+1. Develop more rigid mounting betwen the sensor board and the Raspberry Pi. (Don't use rubber bands and erasers...)
+1. Explore options for mounting. Look at the universal Amazon Basic phone mounting solution.
+1. Develop casing that allows ultrasonic sensor to route to where they make sense. 
+1. Don't use 3D printed threads for your set screws. Explore other options beyond set-screws if a similar system is developed.
+1. Troubleshoot battery powering issue. Possibly work around it using a portable battery bank?
+1. Possibly switch out the Raspberry Pi 3B+ for a Raspberry Pi 4 and explore increased performance.
+1. Implement the camera for terrain testing and image classification.
+1. Decrease overall footprint.
+=======
+1. Test multiple sensors working conurrently for stability.
+>>>>>>> remotes/origin/master
