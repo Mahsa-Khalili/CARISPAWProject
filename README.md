@@ -216,7 +216,6 @@ This can be changed in the router settings under DHCP > address reservation.
 
 ## 6.0 Future Work
 
-<<<<<<< HEAD
 ### 6.1 Software Work
 
 #### High Priority Work
@@ -224,18 +223,10 @@ This can be changed in the router settings under DHCP > address reservation.
 1. Get left and right wheel modules communicating with the frame module and calculate synthesis data.
 
 #### Low Priority Work
-=======
-### 6.1 High Priority Work
-1. Add data collection / storage for terrain classification retrieval.
-1. Get left and right wheel modules communicating with the frame module and calculate synthesis data.
-
-### 6.2 Low Priority Work
->>>>>>> remotes/origin/master
 1. Switch queue structures for value structures for run markers and ensure all sub libraries utilize the run marker.
 1. Switch the server and client relationship of the Pi and laptop so any laptop works.
 1. Implement forward ultrasonic sensors.
 1. Implement pi camera to take photos and feed back using protobuffer structures.
-<<<<<<< HEAD
 1. Test multiple sensors working conurrently for stability.
 
 ### 6.2 Hardware Deficiencies / Improvements
@@ -257,6 +248,5 @@ This can be changed in the router settings under DHCP > address reservation.
 1. Possibly switch out the Raspberry Pi 3B+ for a Raspberry Pi 4 and explore increased performance.
 1. Implement the camera for terrain testing and image classification.
 1. Decrease overall footprint.
-=======
-1. Test multiple sensors working conurrently for stability.
->>>>>>> remotes/origin/master
+
+
