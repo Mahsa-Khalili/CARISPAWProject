@@ -53,7 +53,7 @@ BTAddress = '54:8c:a0:a4:8e:a2'
 
 SENSOR_LIST = ['IMU_9', 'IMU_6', 'USS_DOWN', 'USS_FORW', 'PI_CAM']
 
-ACTIVE_SENSORS = [0, 1]
+ACTIVE_SENSORS = [0, 1, 2]
 
 # CLASSES
 
